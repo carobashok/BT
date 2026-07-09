@@ -11,7 +11,10 @@ st.set_page_config(page_title="Carob Order Tracker", page_icon="📦", layout="w
 
 NAVY = "#0D1B2A"
 ACCENT = "#2563EB"
-BG = "#F0F4FA"
+BG = "#0D1B2A"
+CARD_BG = "#16273D"
+TEXT = "#F0F4FA"
+MUTED_TEXT = "#93A4BD"
 
 DB_PATH = "order_tracker.db"
 
@@ -116,24 +119,59 @@ init_db()
 # ---------------------------------------------------------
 st.markdown(f"""
 <style>
-    .stApp {{ background-color: {BG}; }}
+    html, body,
+    .stApp,
+    [data-testid="stAppViewContainer"],
+    [data-testid="stHeader"],
+    [data-testid="stMain"],
+    .main {{
+        background-color: {BG} !important;
+    }}
+
+    /* Force readable light text everywhere, on top of whatever base theme is active */
+    .stApp, .stApp p, .stApp span, .stApp label, .stApp li, .stApp div {{ color: {TEXT} !important; }}
+    h1, h2, h3, h4, h5, h6 {{ color: {TEXT} !important; }}
+    .stMarkdown, .stCaption, [data-testid="stCaptionContainer"] {{ color: {MUTED_TEXT} !important; }}
+    [data-testid="stMetricLabel"] p {{ color: {MUTED_TEXT} !important; }}
+    [data-testid="stMetricValue"] {{ color: {TEXT} !important; }}
+    [data-testid="stMetricValue"] div {{ color: {TEXT} !important; }}
+    [data-testid="stWidgetLabel"] p {{ color: {TEXT} !important; }}
+    section[data-testid="stSidebar"] {{ background-color: {CARD_BG} !important; }}
+    section[data-testid="stSidebar"] * {{ color: {TEXT} !important; }}
+    .stTabs [data-baseweb="tab"] {{ color: {MUTED_TEXT} !important; }}
+    .stTabs [data-baseweb="tab"] p {{ color: {MUTED_TEXT} !important; }}
+    .stTabs [aria-selected="true"] {{ color: {ACCENT} !important; }}
+    .stTabs [aria-selected="true"] p {{ color: {ACCENT} !important; }}
+    .stDataFrame, .stDataFrame * {{ color: {TEXT} !important; }}
+    [data-testid="stContainer"], div[data-testid="stVerticalBlockBorderWrapper"] {{
+        background-color: {CARD_BG} !important;
+    }}
+    input, textarea, select {{
+        background-color: {CARD_BG} !important;
+        color: {TEXT} !important;
+    }}
+    [data-baseweb="select"] > div {{
+        background-color: {CARD_BG} !important;
+        color: {TEXT} !important;
+    }}
+
     .main-header {{
-        background-color: {NAVY};
+        background-color: {CARD_BG} !important;
         padding: 1.2rem 1.5rem;
         border-radius: 8px;
         margin-bottom: 1.5rem;
+        border: 1px solid #223349;
     }}
-    .main-header h1 {{ color: white; margin: 0; font-size: 1.5rem; }}
-    .main-header p {{ color: #93C5FD; margin: 0; font-size: 0.9rem; }}
+    .main-header h1, .main-header h1 * {{ color: white !important; margin: 0; font-size: 1.5rem; }}
+    .main-header p {{ color: #93C5FD !important; margin: 0; font-size: 0.9rem; }}
     .status-badge {{
         padding: 3px 10px;
         border-radius: 12px;
-        color: white;
+        color: white !important;
         font-size: 0.75rem;
         font-weight: 600;
         display: inline-block;
     }}
-    div[data-testid="stMetricValue"] {{ color: {NAVY}; }}
 </style>
 """, unsafe_allow_html=True)
 
