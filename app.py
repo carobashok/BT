@@ -27,13 +27,25 @@ REGIONS = ["North", "South", "East", "West"]
 ITEMS = ["Bearing Assembly", "Brake Pad Set", "Clutch Plate", "Gear Box Unit",
          "Piston Ring Kit", "Radiator Core", "Suspension Arm", "Wiring Harness"]
 
-# Who is allowed to move an order out of each status.
-# key = current status, value = (next status, roles allowed to make that move)
+# Who is allowed to move an order out of each status, and to which
+# next status(es). Some statuses have more than one valid next step —
+# e.g. a Confirmed order can go to production, OR straight to
+# Dispatched if it's already in stock.
+# key = current status, value = list of (next_status, roles_allowed, button_label)
 STATUS_TRANSITIONS = {
-    "Placed":         ("Confirmed",     ["Sales Coordinator", "RSM / Management", "Admin"]),
-    "Confirmed":      ("In Production", ["Factory", "Admin"]),
-    "In Production":  ("Dispatched",    ["Factory", "Admin"]),
-    "Dispatched":     ("Delivered",     ["Factory", "Sales Coordinator", "Admin"]),
+    "Placed": [
+        ("Confirmed", ["Sales Coordinator", "RSM / Management", "Admin"], "Confirm Order"),
+    ],
+    "Confirmed": [
+        ("In Production", ["Factory", "Admin"], "Send to Production"),
+        ("Dispatched", ["Factory", "Admin"], "Dispatch (already in stock)"),
+    ],
+    "In Production": [
+        ("Dispatched", ["Factory", "Admin"], "Mark Dispatched"),
+    ],
+    "Dispatched": [
+        ("Delivered", ["Factory", "Sales Coordinator", "Admin"], "Mark Delivered"),
+    ],
 }
 
 SCHEMA = "btp"
@@ -342,30 +354,33 @@ if "🔄 Update Status" in tab_map:
             st.info(f"No orders currently in '{queue_status}'.")
         else:
             queue_df = queue_df.sort_values("requested_date")
-            transition = STATUS_TRANSITIONS.get(queue_status)
-            next_status, allowed_roles = transition if transition else (None, [])
-            can_act = role in allowed_roles
+            transitions = STATUS_TRANSITIONS.get(queue_status, [])
+            actionable = [(nxt, roles, label) for nxt, roles, label in transitions if role in roles]
+            all_roles_needed = sorted({r for _, roles, _ in transitions for r in roles})
 
-            if next_status and not can_act:
-                st.caption(f"👀 View-only here — moving '{queue_status}' → '{next_status}' "
-                           f"is done by: {', '.join(allowed_roles)}.")
+            if transitions and not actionable:
+                st.caption(f"👀 View-only here — updating orders from '{queue_status}' "
+                           f"is done by: {', '.join(all_roles_needed)}.")
 
             for _, row in queue_df.iterrows():
                 with st.container(border=True):
-                    c1, c2, c3 = st.columns([3, 2, 2])
+                    c1, c2, c3 = st.columns([3, 2, 3])
                     with c1:
                         st.markdown(f"**Order #{row['order_id']}** — {row['customer_name']}")
                         st.caption(f"{row['item']} · Qty: {row['qty']} · Needed by {row['requested_date']}")
                     with c2:
                         note = st.text_input("Note", key=f"note_{row['order_id']}",
-                                              label_visibility="collapsed", placeholder="Optional note")
+                                              label_visibility="collapsed",
+                                              placeholder="Optional note (e.g. 'in stock')")
                     with c3:
-                        if next_status and can_act:
-                            if st.button(f"Move to '{next_status}'", key=f"btn_{row['order_id']}"):
-                                update_order_status(int(row["order_id"]), next_status, display_name, note)
-                                st.rerun()
-                        elif next_status:
-                            st.caption(f"Needs: {', '.join(allowed_roles)}")
+                        if actionable:
+                            btn_cols = st.columns(len(actionable))
+                            for i, (nxt, roles, label) in enumerate(actionable):
+                                if btn_cols[i].button(label, key=f"btn_{row['order_id']}_{nxt}"):
+                                    update_order_status(int(row["order_id"]), nxt, display_name, note)
+                                    st.rerun()
+                        elif transitions:
+                            st.caption(f"Needs: {', '.join(all_roles_needed)}")
 
 # ---- DASHBOARD ----
 with tab_map["📊 Dashboard"]:
