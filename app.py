@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from supabase import create_client, Client
 
 # ---------------------------------------------------------
@@ -49,6 +50,7 @@ STATUS_TRANSITIONS = {
 }
 
 SCHEMA = "btp"
+IST = ZoneInfo("Asia/Kolkata")
 
 # ---------------------------------------------------------
 # SUPABASE CLIENT
@@ -175,6 +177,19 @@ def is_blank(value):
     except (TypeError, ValueError):
         return False
 
+def to_ist(value):
+    """Parse a UTC timestamp and convert to IST. Returns a tz-aware
+    pandas Timestamp, or None if blank/unparseable."""
+    if is_blank(value):
+        return None
+    try:
+        dt = pd.to_datetime(value)
+        if dt.tzinfo is None:
+            dt = dt.tz_localize("UTC")
+        return dt.tz_convert(IST)
+    except Exception:
+        return None
+
 def fmt_date(value):
     """ISO date/datetime string -> dd-mm-yyyy for display. Leaves blanks as '—'."""
     if value is None or value == "" or pd.isna(value):
@@ -185,13 +200,11 @@ def fmt_date(value):
         return str(value)
 
 def fmt_datetime(value):
-    """ISO datetime string -> dd-mm-yyyy HH:MM for display."""
-    if value is None or value == "" or pd.isna(value):
+    """UTC timestamp -> dd-mm-yyyy HH:MM IST for display."""
+    dt_ist = to_ist(value)
+    if dt_ist is None:
         return "—"
-    try:
-        return pd.to_datetime(value).strftime("%d-%m-%Y %H:%M")
-    except Exception:
-        return str(value)
+    return dt_ist.strftime("%d-%m-%Y %H:%M") + " IST"
 
 # ---------------------------------------------------------
 # STYLING (self-contained dark theme — doesn't rely on config.toml)
@@ -349,9 +362,12 @@ if "➕ Order Entry" in tab_map:
         st.markdown("**Orders entered today**")
         all_orders_preview = fetch_orders()
         if not all_orders_preview.empty:
-            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+            today_ist = datetime.now(IST).date()
+            placed_ist_dates = all_orders_preview["placed_at"].apply(
+                lambda x: to_ist(x).date() if to_ist(x) is not None else None
+            )
             today_orders = all_orders_preview[
-                all_orders_preview["placed_at"].astype(str).str.startswith(today)
+                placed_ist_dates == today_ist
             ][["order_id", "customer_name", "items_summary", "status"]].rename(
                 columns={"items_summary": "items"})
             if today_orders.empty:
