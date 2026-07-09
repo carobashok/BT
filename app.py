@@ -465,13 +465,19 @@ if "🔄 Update Status" in tab_map:
                     if role in ["Factory", "Admin"]:
                         dc1, dc2 = st.columns([3, 1])
                         with dc1:
-                            default_date = (
-                                pd.to_datetime(current_expected).date()
-                                if current_expected else datetime.now().date()
-                            )
+                            try:
+                                default_date = (
+                                    pd.to_datetime(current_expected).date()
+                                    if current_expected else datetime.now().date()
+                                )
+                            except Exception:
+                                default_date = datetime.now().date()
+
                             new_expected = st.date_input(
                                 "Expected delivery date",
                                 value=default_date,
+                                min_value=datetime(2020, 1, 1).date(),
+                                max_value=datetime(2035, 12, 31).date(),
                                 key=f"expected_{row['order_id']}",
                                 label_visibility="collapsed",
                                 format="DD-MM-YYYY",
