@@ -261,7 +261,7 @@ if "➕ Order Entry" in tab_map:
             if today_orders.empty:
                 st.caption("No orders entered yet today.")
             else:
-                st.dataframe(today_orders, hide_index=True, use_container_width=True)
+                st.dataframe(today_orders, hide_index=True, width='stretch')
         else:
             st.caption("No orders entered yet today.")
 
@@ -306,7 +306,7 @@ with tab_map["📋 Order Tracker"]:
             "Requested Date", "Placed At", "RSM", "Days Open"]]
 
         st.caption(f"{len(display_df)} orders")
-        st.dataframe(display_df, hide_index=True, use_container_width=True)
+        st.dataframe(display_df, hide_index=True, width='stretch')
 
         with st.expander("🔍 View order detail / status history"):
             sel_id = st.selectbox("Order ID", display_df["Order ID"].tolist())
@@ -316,7 +316,7 @@ with tab_map["📋 Order Tracker"]:
                     "status": "Status", "updated_by": "Updated By",
                     "updated_at": "Updated At", "note": "Note"})[
                     ["Status", "Updated By", "Updated At", "Note"]]
-            st.dataframe(hist, hide_index=True, use_container_width=True)
+            st.dataframe(hist, hide_index=True, width='stretch')
     else:
         st.info("No orders yet. Add one from the Order Entry tab.")
 
@@ -393,7 +393,7 @@ with tab_map["📊 Dashboard"]:
 if "⚙️ Admin" in tab_map:
     with tab_map["⚙️ Admin"]:
         st.subheader("Manage Customers")
-        st.dataframe(customers_df, hide_index=True, use_container_width=True)
+        st.dataframe(customers_df, hide_index=True, width='stretch')
 
         st.markdown("**Add Customer**")
         c1, c2, c3 = st.columns(3)
