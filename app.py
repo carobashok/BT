@@ -3,6 +3,7 @@ import pandas as pd
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from supabase import create_client, Client
+from fpdf import FPDF
 
 # ---------------------------------------------------------
 # CONFIG
@@ -205,6 +206,75 @@ def fmt_datetime(value):
     if dt_ist is None:
         return "—"
     return dt_ist.strftime("%d-%m-%Y %H:%M") + " IST"
+
+def generate_order_pdf(order, items_df) -> bytes:
+    """Build a single-page printable order sheet for the factory floor.
+    order: dict-like (order_id, customer_name, region, rsm, status,
+           requested_date, expected_delivery_date, notes, placed_by, placed_at)
+    items_df: DataFrame with columns item, qty, unit
+    """
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.add_page()
+    pdf.set_margin(15)
+
+    pdf.set_font("Helvetica", "B", 18)
+    pdf.cell(0, 10, f"Order #{order.get('order_id')}", ln=1)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.set_text_color(100, 100, 100)
+    pdf.cell(0, 6, "Carob Technologies - BTP Order Sheet", ln=1)
+    pdf.set_text_color(0, 0, 0)
+    pdf.ln(4)
+    pdf.set_draw_color(180, 180, 180)
+    pdf.line(15, pdf.get_y(), 195, pdf.get_y())
+    pdf.ln(6)
+
+    def info_row(label, value):
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(55, 8, label, border=0)
+        pdf.set_font("Helvetica", "", 11)
+        pdf.cell(0, 8, str(value) if value not in (None, "", "nan") else "-", ln=1)
+
+    info_row("Customer:", order.get("customer_name"))
+    info_row("Region:", order.get("region"))
+    info_row("Regional Sales Person:", order.get("rsm"))
+    info_row("Status:", order.get("status"))
+    info_row("Requested Date:", fmt_date(order.get("requested_date")))
+    info_row("Expected Delivery:", fmt_date(order.get("expected_delivery_date")))
+    info_row("Placed By:", order.get("placed_by"))
+    info_row("Placed At:", fmt_datetime(order.get("placed_at")))
+
+    pdf.ln(4)
+    pdf.set_font("Helvetica", "B", 12)
+    pdf.cell(0, 8, "Items", ln=1)
+
+    pdf.set_font("Helvetica", "B", 10)
+    pdf.set_fill_color(230, 230, 230)
+    pdf.cell(100, 8, "Item", border=1, fill=True)
+    pdf.cell(40, 8, "Quantity", border=1, fill=True)
+    pdf.cell(40, 8, "Unit", border=1, fill=True, ln=1)
+
+    pdf.set_font("Helvetica", "", 10)
+    for _, row in items_df.iterrows():
+        pdf.cell(100, 8, str(row["item"]), border=1)
+        pdf.cell(40, 8, str(row["qty"]), border=1)
+        pdf.cell(40, 8, str(row["unit"]), border=1, ln=1)
+
+    notes = order.get("notes")
+    if notes and str(notes).strip() and str(notes) != "nan":
+        pdf.ln(4)
+        pdf.set_font("Helvetica", "B", 11)
+        pdf.cell(0, 8, "Notes:", ln=1)
+        pdf.set_font("Helvetica", "", 10)
+        pdf.multi_cell(0, 6, str(notes))
+
+    pdf.ln(14)
+    pdf.set_font("Helvetica", "", 10)
+    pdf.cell(90, 8, "Received by: ______________________", border=0)
+    pdf.cell(0, 8, "Date: ______________________", border=0, ln=1)
+
+    return bytes(pdf.output())
+
+
 
 # ---------------------------------------------------------
 # STYLING (self-contained dark theme — doesn't rely on config.toml)
@@ -441,6 +511,20 @@ with tab_map["📋 Order Tracker"]:
                     ["Status", "Updated By", "Updated At", "Note"]]
                 hist["Updated At"] = hist["Updated At"].apply(fmt_datetime)
             st.dataframe(hist, hide_index=True, width='stretch')
+
+            st.divider()
+            st.markdown("**🖨️ Printable order sheet**")
+            order_row = orders_df[orders_df["order_id"] == sel_id].iloc[0]
+            raw_items = fetch_order_items(int(sel_id))
+            pdf_bytes = generate_order_pdf(order_row, raw_items)
+            st.download_button(
+                "Download PDF",
+                data=pdf_bytes,
+                file_name=f"Order_{sel_id}.pdf",
+                mime="application/pdf",
+                key=f"pdf_{sel_id}",
+            )
+            st.caption("Download, then print from any browser — hand this to the factory.")
     else:
         st.info("No orders yet. Add one from the Order Entry tab.")
 
