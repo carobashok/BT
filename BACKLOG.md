@@ -24,6 +24,30 @@ order volume shows how often partial dispatch actually happens, and
 what patterns it follows (e.g. always stock-driven, or also
 production-batch-driven).
 
+## Two-tier status grouping (Pending / Completed)
+Right now the app shows all 5 granular statuses flat (Placed, Confirmed,
+In Production, Dispatched, Delivered) everywhere — Order Tracker filter,
+Update Status queue selector, Dashboard chart.
+
+Idea: add a higher-level grouping on top —
+- **Completed** = Delivered
+- **Pending** = everything else (Placed, Confirmed, In Production,
+  Dispatched), with the specific sub-status still visible/selectable
+  once "Pending" is chosen
+
+This is mainly a UI/filtering layer, not a schema change — the
+underlying `status` column and STATUS_TRANSITIONS logic can stay as-is.
+Would touch:
+- Order Tracker's status filter (top-level Pending/Completed choice,
+  then optional sub-status filter)
+- Update Status tab's "Show orders in status" selector (same pattern)
+- Dashboard's "Orders by Status" chart (could show both the grouped
+  view and the granular breakdown)
+
+Worth doing once it's clear whether people actually want to see
+Pending vs Completed at a glance first, then drill in — vs. the
+current flat list being fine as-is.
+
 ## Region/state-based access control
 RSM and Management should eventually only see orders for their own
 region/state, not all customers. Needs:
