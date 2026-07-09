@@ -164,6 +164,24 @@ def insert_customer(name, region, rsm):
     supabase.table("customers").insert(
         {"name": name, "region": region, "rsm": rsm}).execute()
 
+def fmt_date(value):
+    """ISO date/datetime string -> dd-mm-yyyy for display. Leaves blanks as '—'."""
+    if value is None or value == "" or pd.isna(value):
+        return "—"
+    try:
+        return pd.to_datetime(value).strftime("%d-%m-%Y")
+    except Exception:
+        return str(value)
+
+def fmt_datetime(value):
+    """ISO datetime string -> dd-mm-yyyy HH:MM for display."""
+    if value is None or value == "" or pd.isna(value):
+        return "—"
+    try:
+        return pd.to_datetime(value).strftime("%d-%m-%Y %H:%M")
+    except Exception:
+        return str(value)
+
 # ---------------------------------------------------------
 # STYLING (self-contained dark theme — doesn't rely on config.toml)
 # ---------------------------------------------------------
@@ -304,7 +322,8 @@ if "➕ Order Entry" in tab_map:
             st.caption("No items added yet — add at least one item above before submitting.")
 
         req_date = st.date_input("Requested Delivery Date",
-                                   value=datetime.now() + timedelta(days=7))
+                                   value=datetime.now() + timedelta(days=7),
+                                   format="DD-MM-YYYY")
         notes = st.text_area("Notes (optional)", height=68)
 
         if st.button("Submit Order", type="primary", disabled=not st.session_state.cart):
@@ -371,6 +390,10 @@ with tab_map["📋 Order Tracker"]:
         })[["Order ID", "Customer", "Region", "Items", "Line Items", "Status",
             "Requested Date", "Expected Delivery", "Placed At", "RSM", "Days Open"]]
 
+        display_df["Requested Date"] = display_df["Requested Date"].apply(fmt_date)
+        display_df["Expected Delivery"] = display_df["Expected Delivery"].apply(fmt_date)
+        display_df["Placed At"] = display_df["Placed At"].apply(fmt_datetime)
+
         st.caption(f"{len(display_df)} orders")
         st.dataframe(display_df, hide_index=True, width='stretch')
 
@@ -389,6 +412,7 @@ with tab_map["📋 Order Tracker"]:
                     "status": "Status", "updated_by": "Updated By",
                     "updated_at": "Updated At", "note": "Note"})[
                     ["Status", "Updated By", "Updated At", "Note"]]
+                hist["Updated At"] = hist["Updated At"].apply(fmt_datetime)
             st.dataframe(hist, hide_index=True, width='stretch')
     else:
         st.info("No orders yet. Add one from the Order Entry tab.")
@@ -418,10 +442,10 @@ if "🔄 Update Status" in tab_map:
                     c1, c2, c3 = st.columns([3, 2, 3])
                     with c1:
                         st.markdown(f"**Order #{row['order_id']}** — {row['customer_name']}")
-                        st.caption(f"{row['items_summary']} · Requested by {row['requested_date']}")
+                        st.caption(f"{row['items_summary']} · Requested by {fmt_date(row['requested_date'])}")
                         current_expected = row.get("expected_delivery_date")
                         if current_expected:
-                            st.caption(f"📅 Expected delivery: **{current_expected}**")
+                            st.caption(f"📅 Expected delivery: **{fmt_date(current_expected)}**")
                         else:
                             st.caption("📅 Expected delivery: _not set_")
                     with c2:
@@ -450,6 +474,7 @@ if "🔄 Update Status" in tab_map:
                                 value=default_date,
                                 key=f"expected_{row['order_id']}",
                                 label_visibility="collapsed",
+                                format="DD-MM-YYYY",
                             )
                         with dc2:
                             if st.button("Save Date", key=f"save_expected_{row['order_id']}"):
