@@ -512,19 +512,20 @@ with tab_map["📋 Order Tracker"]:
                 hist["Updated At"] = hist["Updated At"].apply(fmt_datetime)
             st.dataframe(hist, hide_index=True, width='stretch')
 
-            st.divider()
-            st.markdown("**🖨️ Printable order sheet**")
-            order_row = orders_df[orders_df["order_id"] == sel_id].iloc[0]
-            raw_items = fetch_order_items(int(sel_id))
-            pdf_bytes = generate_order_pdf(order_row, raw_items)
-            st.download_button(
-                "Download PDF",
-                data=pdf_bytes,
-                file_name=f"Order_{sel_id}.pdf",
-                mime="application/pdf",
-                key=f"pdf_{sel_id}",
-            )
-            st.caption("Download, then print from any browser — hand this to the factory.")
+            if role in ["Factory", "Admin"]:
+                st.divider()
+                st.markdown("**🖨️ Printable order sheet**")
+                order_row = orders_df[orders_df["order_id"] == sel_id].iloc[0]
+                raw_items = fetch_order_items(int(sel_id))
+                pdf_bytes = generate_order_pdf(order_row, raw_items)
+                st.download_button(
+                    "Download PDF",
+                    data=pdf_bytes,
+                    file_name=f"Order_{sel_id}.pdf",
+                    mime="application/pdf",
+                    key=f"pdf_{sel_id}",
+                )
+                st.caption("Download, then print from any browser — hand this to the factory.")
     else:
         st.info("No orders yet. Add one from the Order Entry tab.")
 
