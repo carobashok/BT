@@ -103,6 +103,7 @@ def fetch_orders() -> pd.DataFrame:
             "line_count": len(items),
             "total_qty": total_qty,
             "requested_date": r["requested_date"],
+            "expected_delivery_date": r.get("expected_delivery_date"),
             "notes": r["notes"],
             "status": r["status"],
             "placed_by": r["placed_by"],
@@ -139,6 +140,11 @@ def insert_order(customer_id, items, requested_date, notes, placed_by):
         "updated_by": placed_by, "updated_at": now, "note": "",
     }).execute()
     return order_id
+
+def update_expected_delivery(order_id, new_date):
+    supabase.table("orders").update(
+        {"expected_delivery_date": str(new_date)}
+    ).eq("order_id", order_id).execute()
 
 def update_order_status(order_id, new_status, updated_by, note=""):
     now = datetime.utcnow().isoformat()
@@ -360,10 +366,10 @@ with tab_map["📋 Order Tracker"]:
         display_df = orders_df.rename(columns={
             "order_id": "Order ID", "customer_name": "Customer", "region": "Region",
             "items_summary": "Items", "line_count": "Line Items", "status": "Status",
-            "requested_date": "Requested Date", "placed_at": "Placed At",
-            "rsm": "RSM", "days_open": "Days Open",
+            "requested_date": "Requested Date", "expected_delivery_date": "Expected Delivery",
+            "placed_at": "Placed At", "rsm": "RSM", "days_open": "Days Open",
         })[["Order ID", "Customer", "Region", "Items", "Line Items", "Status",
-            "Requested Date", "Placed At", "RSM", "Days Open"]]
+            "Requested Date", "Expected Delivery", "Placed At", "RSM", "Days Open"]]
 
         st.caption(f"{len(display_df)} orders")
         st.dataframe(display_df, hide_index=True, width='stretch')
@@ -412,7 +418,12 @@ if "🔄 Update Status" in tab_map:
                     c1, c2, c3 = st.columns([3, 2, 3])
                     with c1:
                         st.markdown(f"**Order #{row['order_id']}** — {row['customer_name']}")
-                        st.caption(f"{row['items_summary']} · Needed by {row['requested_date']}")
+                        st.caption(f"{row['items_summary']} · Requested by {row['requested_date']}")
+                        current_expected = row.get("expected_delivery_date")
+                        if current_expected:
+                            st.caption(f"📅 Expected delivery: **{current_expected}**")
+                        else:
+                            st.caption("📅 Expected delivery: _not set_")
                     with c2:
                         note = st.text_input("Note", key=f"note_{row['order_id']}",
                                               label_visibility="collapsed",
@@ -426,6 +437,25 @@ if "🔄 Update Status" in tab_map:
                                     st.rerun()
                         elif transitions:
                             st.caption(f"Needs: {', '.join(all_roles_needed)}")
+
+                    if role in ["Factory", "Admin"]:
+                        dc1, dc2 = st.columns([3, 1])
+                        with dc1:
+                            default_date = (
+                                pd.to_datetime(current_expected).date()
+                                if current_expected else datetime.now().date()
+                            )
+                            new_expected = st.date_input(
+                                "Expected delivery date",
+                                value=default_date,
+                                key=f"expected_{row['order_id']}",
+                                label_visibility="collapsed",
+                            )
+                        with dc2:
+                            if st.button("Save Date", key=f"save_expected_{row['order_id']}"):
+                                update_expected_delivery(int(row["order_id"]), new_expected)
+                                st.success("Expected delivery date updated.")
+                                st.rerun()
 
 # ---- DASHBOARD ----
 with tab_map["📊 Dashboard"]:
