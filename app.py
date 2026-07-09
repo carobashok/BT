@@ -35,7 +35,7 @@ ITEMS = ["Bearing Assembly", "Brake Pad Set", "Clutch Plate", "Gear Box Unit",
 # key = current status, value = list of (next_status, roles_allowed, button_label)
 STATUS_TRANSITIONS = {
     "Placed": [
-        ("Confirmed", ["Sales Coordinator", "RSM", "Management", "Admin"], "Confirm Order"),
+        ("Confirmed", ["Sales Coordinator", "Regional Sales", "Management", "Admin"], "Confirm Order"),
     ],
     "Confirmed": [
         ("In Production", ["Factory", "Admin"], "Send to Production"),
@@ -276,7 +276,7 @@ st.markdown(f"""
 # ---------------------------------------------------------
 with st.sidebar:
     st.markdown("### 👤 Viewing as")
-    role = st.selectbox("Role", ["Sales Coordinator", "Factory", "RSM", "Management", "Admin"])
+    role = st.selectbox("Role", ["Sales Coordinator", "Factory", "Regional Sales", "Management", "Admin"])
     user_name = st.text_input("Your name", value="", placeholder="e.g. Priya Menon")
     display_name = user_name.strip() if user_name.strip() else role
     st.caption("Role-based login (Supabase Auth) replaces this switch in the next phase.")
