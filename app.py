@@ -107,6 +107,7 @@ def fetch_orders() -> pd.DataFrame:
             "total_qty": total_qty,
             "requested_date": r["requested_date"],
             "expected_delivery_date": r.get("expected_delivery_date"),
+            "box_count": r.get("box_count"),
             "notes": r["notes"],
             "status": r["status"],
             "placed_by": r["placed_by"],
@@ -149,9 +150,12 @@ def update_expected_delivery(order_id, new_date):
         {"expected_delivery_date": str(new_date)}
     ).eq("order_id", order_id).execute()
 
-def update_order_status(order_id, new_status, updated_by, note=""):
+def update_order_status(order_id, new_status, updated_by, note="", box_count=None):
     now = datetime.now(timezone.utc).isoformat()
-    supabase.table("orders").update({"status": new_status}).eq("order_id", order_id).execute()
+    update_payload = {"status": new_status}
+    if box_count is not None:
+        update_payload["box_count"] = int(box_count)
+    supabase.table("orders").update(update_payload).eq("order_id", order_id).execute()
     supabase.table("status_log").insert({
         "order_id": order_id, "status": new_status,
         "updated_by": updated_by, "updated_at": now, "note": note,
@@ -242,6 +246,9 @@ def generate_order_pdf(order, items_df) -> bytes:
     info_row("Expected Delivery:", fmt_date(order.get("expected_delivery_date")))
     info_row("Placed By:", order.get("placed_by"))
     info_row("Placed At:", fmt_datetime(order.get("placed_at")))
+    box_count = order.get("box_count")
+    if not is_blank(box_count):
+        info_row("No. of Boxes:", int(box_count))
 
     pdf.ln(4)
     pdf.set_font("Helvetica", "B", 12)
@@ -483,13 +490,14 @@ with tab_map["📋 Order Tracker"]:
             "order_id": "Order ID", "customer_name": "Customer", "region": "Region",
             "items_summary": "Items", "line_count": "Line Items", "status": "Status",
             "requested_date": "Requested Date", "expected_delivery_date": "Expected Delivery",
-            "placed_at": "Placed At", "rsm": "RSM", "days_open": "Days Open",
+            "box_count": "Boxes", "placed_at": "Placed At", "rsm": "RSM", "days_open": "Days Open",
         })[["Order ID", "Customer", "Region", "Items", "Line Items", "Status",
-            "Requested Date", "Expected Delivery", "Placed At", "RSM", "Days Open"]]
+            "Requested Date", "Expected Delivery", "Boxes", "Placed At", "RSM", "Days Open"]]
 
         display_df["Requested Date"] = display_df["Requested Date"].apply(fmt_date)
         display_df["Expected Delivery"] = display_df["Expected Delivery"].apply(fmt_date)
         display_df["Placed At"] = display_df["Placed At"].apply(fmt_datetime)
+        display_df["Boxes"] = display_df["Boxes"].apply(lambda v: "—" if is_blank(v) else int(v))
 
         st.caption(f"{len(display_df)} orders")
         st.dataframe(display_df, hide_index=True, width='stretch')
@@ -560,16 +568,28 @@ if "🔄 Update Status" in tab_map:
                             st.caption(f"📅 Expected delivery: **{fmt_date(current_expected)}**")
                         else:
                             st.caption("📅 Expected delivery: _not set_")
+                        if not is_blank(row.get("box_count")):
+                            st.caption(f"📦 Boxes: **{int(row['box_count'])}**")
+                    dispatching = any(nxt == "Dispatched" for nxt, _, _ in actionable)
+
                     with c2:
                         note = st.text_input("Note", key=f"note_{row['order_id']}",
                                               label_visibility="collapsed",
                                               placeholder="Optional note (e.g. 'in stock')")
+                        box_count = None
+                        if dispatching:
+                            box_count = st.number_input(
+                                "No. of boxes", min_value=1, value=1, step=1,
+                                key=f"boxes_{row['order_id']}",
+                                help="Number of boxes/packages this order is being dispatched in",
+                            )
                     with c3:
                         if actionable:
                             btn_cols = st.columns(len(actionable))
                             for i, (nxt, roles, label) in enumerate(actionable):
                                 if btn_cols[i].button(label, key=f"btn_{row['order_id']}_{nxt}"):
-                                    update_order_status(int(row["order_id"]), nxt, display_name, note)
+                                    bc = box_count if nxt == "Dispatched" else None
+                                    update_order_status(int(row["order_id"]), nxt, display_name, note, bc)
                                     st.rerun()
                         elif transitions:
                             st.caption(f"Needs: {', '.join(all_roles_needed)}")
