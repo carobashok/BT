@@ -84,21 +84,24 @@ def fetch_customers() -> pd.DataFrame:
 
 def fetch_orders() -> pd.DataFrame:
     res = supabase.table("orders").select(
-        "*, customers(name, region, rsm)"
+        "*, customers(name, region, rsm), order_items(item, qty, unit)"
     ).order("order_id", desc=True).execute()
     rows = res.data or []
     flat = []
     for r in rows:
         cust = r.get("customers") or {}
+        items = r.get("order_items") or []
+        items_summary = ", ".join(f"{it['item']} ({it['qty']} {it['unit']})" for it in items)
+        total_qty = sum(it["qty"] for it in items)
         flat.append({
             "order_id": r["order_id"],
             "customer_id": r["customer_id"],
             "customer_name": cust.get("name"),
             "region": cust.get("region"),
             "rsm": cust.get("rsm"),
-            "item": r["item"],
-            "qty": r["qty"],
-            "unit": r["unit"],
+            "items_summary": items_summary,
+            "line_count": len(items),
+            "total_qty": total_qty,
             "requested_date": r["requested_date"],
             "notes": r["notes"],
             "status": r["status"],
@@ -107,13 +110,16 @@ def fetch_orders() -> pd.DataFrame:
         })
     return pd.DataFrame(flat)
 
-def insert_order(customer_id, item, qty, unit, requested_date, notes, placed_by):
+def fetch_order_items(order_id) -> pd.DataFrame:
+    res = supabase.table("order_items").select("*").eq("order_id", order_id).execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame(
+        columns=["item", "qty", "unit"])
+
+def insert_order(customer_id, items, requested_date, notes, placed_by):
+    """items: list of dicts with keys item, qty, unit"""
     now = datetime.utcnow().isoformat()
     res = supabase.table("orders").insert({
         "customer_id": int(customer_id),
-        "item": item,
-        "qty": int(qty),
-        "unit": unit,
         "requested_date": str(requested_date),
         "notes": notes,
         "status": "Placed",
@@ -121,6 +127,13 @@ def insert_order(customer_id, item, qty, unit, requested_date, notes, placed_by)
         "placed_at": now,
     }).execute()
     order_id = res.data[0]["order_id"]
+
+    line_rows = [
+        {"order_id": order_id, "item": it["item"], "qty": int(it["qty"]), "unit": it["unit"]}
+        for it in items
+    ]
+    supabase.table("order_items").insert(line_rows).execute()
+
     supabase.table("status_log").insert({
         "order_id": order_id, "status": "Placed",
         "updated_by": placed_by, "updated_at": now, "note": "",
@@ -251,25 +264,49 @@ tab_map = dict(zip(tab_names, tabs))
 if "➕ Order Entry" in tab_map:
     with tab_map["➕ Order Entry"]:
         st.subheader("New Order Entry")
-        col1, col2 = st.columns(2)
-        with col1:
-            cust_name = st.selectbox("Customer", sorted(customer_map.keys()))
-            item = st.selectbox("Item", ITEMS)
-            qty = st.number_input("Quantity", min_value=1, value=100, step=10)
-        with col2:
-            unit = st.selectbox("Unit", ["pcs", "kg", "boxes"])
-            req_date = st.date_input("Requested Delivery Date",
-                                       value=datetime.now() + timedelta(days=7))
-            notes = st.text_area("Notes (optional)", height=68)
 
+        if "cart" not in st.session_state:
+            st.session_state.cart = []
+
+        cust_name = st.selectbox("Customer", sorted(customer_map.keys()))
         cust_row = customers_df[customers_df["name"] == cust_name].iloc[0]
         st.caption(f"Region: **{cust_row['region']}** · RSM: **{cust_row['rsm']}**")
 
-        if st.button("Submit Order", type="primary"):
+        st.markdown("**Add items to this order**")
+        c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+        with c1:
+            item = st.selectbox("Item", ITEMS, key="cart_item")
+        with c2:
+            qty = st.number_input("Quantity", min_value=1, value=100, step=10, key="cart_qty")
+        with c3:
+            unit = st.selectbox("Unit", ["pcs", "kg", "boxes"], key="cart_unit")
+        with c4:
+            st.markdown("<div style='margin-top:1.8rem'></div>", unsafe_allow_html=True)
+            if st.button("➕ Add"):
+                st.session_state.cart.append({"item": item, "qty": qty, "unit": unit})
+                st.rerun()
+
+        if st.session_state.cart:
+            st.markdown("**Items in this order**")
+            for i, line in enumerate(st.session_state.cart):
+                lc1, lc2 = st.columns([5, 1])
+                lc1.write(f"{line['item']} — {line['qty']} {line['unit']}")
+                if lc2.button("Remove", key=f"remove_{i}"):
+                    st.session_state.cart.pop(i)
+                    st.rerun()
+        else:
+            st.caption("No items added yet — add at least one item above before submitting.")
+
+        req_date = st.date_input("Requested Delivery Date",
+                                   value=datetime.now() + timedelta(days=7))
+        notes = st.text_area("Notes (optional)", height=68)
+
+        if st.button("Submit Order", type="primary", disabled=not st.session_state.cart):
             order_id = insert_order(
-                cust_row["customer_id"], item, qty, unit, req_date, notes,
-                display_name)
-            st.success(f"Order #{order_id} placed for {cust_name}")
+                cust_row["customer_id"], st.session_state.cart, req_date, notes, display_name)
+            st.success(f"Order #{order_id} placed for {cust_name} "
+                       f"({len(st.session_state.cart)} item(s))")
+            st.session_state.cart = []
             st.rerun()
 
         st.divider()
@@ -279,7 +316,8 @@ if "➕ Order Entry" in tab_map:
             today = datetime.utcnow().strftime("%Y-%m-%d")
             today_orders = all_orders_preview[
                 all_orders_preview["placed_at"].astype(str).str.startswith(today)
-            ][["order_id", "customer_name", "item", "qty", "status"]]
+            ][["order_id", "customer_name", "items_summary", "status"]].rename(
+                columns={"items_summary": "items"})
             if today_orders.empty:
                 st.caption("No orders entered yet today.")
             else:
@@ -310,7 +348,7 @@ with tab_map["📋 Order Tracker"]:
         if f_status:
             orders_df = orders_df[orders_df["status"].isin(f_status)]
         if f_search:
-            mask = (orders_df["item"].str.contains(f_search, case=False, na=False) |
+            mask = (orders_df["items_summary"].str.contains(f_search, case=False, na=False) |
                     orders_df["order_id"].astype(str).str.contains(f_search))
             orders_df = orders_df[mask]
 
@@ -321,10 +359,10 @@ with tab_map["📋 Order Tracker"]:
 
         display_df = orders_df.rename(columns={
             "order_id": "Order ID", "customer_name": "Customer", "region": "Region",
-            "item": "Item", "qty": "Qty", "status": "Status",
+            "items_summary": "Items", "line_count": "Line Items", "status": "Status",
             "requested_date": "Requested Date", "placed_at": "Placed At",
             "rsm": "RSM", "days_open": "Days Open",
-        })[["Order ID", "Customer", "Region", "Item", "Qty", "Status",
+        })[["Order ID", "Customer", "Region", "Items", "Line Items", "Status",
             "Requested Date", "Placed At", "RSM", "Days Open"]]
 
         st.caption(f"{len(display_df)} orders")
@@ -332,6 +370,13 @@ with tab_map["📋 Order Tracker"]:
 
         with st.expander("🔍 View order detail / status history"):
             sel_id = st.selectbox("Order ID", display_df["Order ID"].tolist())
+            st.markdown("**Line items**")
+            items_detail = fetch_order_items(int(sel_id))
+            if not items_detail.empty:
+                items_detail = items_detail.rename(columns={
+                    "item": "Item", "qty": "Qty", "unit": "Unit"})[["Item", "Qty", "Unit"]]
+            st.dataframe(items_detail, hide_index=True, width='stretch')
+            st.markdown("**Status history**")
             hist = fetch_status_log(int(sel_id))
             if not hist.empty:
                 hist = hist.rename(columns={
@@ -367,7 +412,7 @@ if "🔄 Update Status" in tab_map:
                     c1, c2, c3 = st.columns([3, 2, 3])
                     with c1:
                         st.markdown(f"**Order #{row['order_id']}** — {row['customer_name']}")
-                        st.caption(f"{row['item']} · Qty: {row['qty']} · Needed by {row['requested_date']}")
+                        st.caption(f"{row['items_summary']} · Needed by {row['requested_date']}")
                     with c2:
                         note = st.text_input("Note", key=f"note_{row['order_id']}",
                                               label_visibility="collapsed",
