@@ -27,6 +27,15 @@ REGIONS = ["North", "South", "East", "West"]
 ITEMS = ["Bearing Assembly", "Brake Pad Set", "Clutch Plate", "Gear Box Unit",
          "Piston Ring Kit", "Radiator Core", "Suspension Arm", "Wiring Harness"]
 
+# Who is allowed to move an order out of each status.
+# key = current status, value = (next status, roles allowed to make that move)
+STATUS_TRANSITIONS = {
+    "Placed":         ("Confirmed",     ["Sales Coordinator", "RSM / Management", "Admin"]),
+    "Confirmed":      ("In Production", ["Factory", "Admin"]),
+    "In Production":  ("Dispatched",    ["Factory", "Admin"]),
+    "Dispatched":     ("Delivered",     ["Factory", "Sales Coordinator", "Admin"]),
+}
+
 SCHEMA = "btp"
 
 # ---------------------------------------------------------
@@ -195,6 +204,8 @@ st.markdown(f"""
 with st.sidebar:
     st.markdown("### 👤 Viewing as")
     role = st.selectbox("Role", ["Sales Coordinator", "Factory", "RSM / Management", "Admin"])
+    user_name = st.text_input("Your name", value="", placeholder="e.g. Priya Menon")
+    display_name = user_name.strip() if user_name.strip() else role
     st.caption("Role-based login (Supabase Auth) replaces this switch in the next phase.")
     st.divider()
     st.caption("Carob Technologies · Supabase-backed")
@@ -216,8 +227,7 @@ tab_names = []
 if role in ["Sales Coordinator", "Admin"]:
     tab_names.append("➕ Order Entry")
 tab_names.append("📋 Order Tracker")
-if role in ["Factory", "Admin"]:
-    tab_names.append("🏭 Factory View")
+tab_names.append("🔄 Update Status")
 tab_names.append("📊 Dashboard")
 if role == "Admin":
     tab_names.append("⚙️ Admin")
@@ -246,7 +256,7 @@ if "➕ Order Entry" in tab_map:
         if st.button("Submit Order", type="primary"):
             order_id = insert_order(
                 cust_row["customer_id"], item, qty, unit, req_date, notes,
-                "Sales Coordinator")
+                display_name)
             st.success(f"Order #{order_id} placed for {cust_name}")
             st.rerun()
 
@@ -321,9 +331,9 @@ with tab_map["📋 Order Tracker"]:
         st.info("No orders yet. Add one from the Order Entry tab.")
 
 # ---- FACTORY VIEW ----
-if "🏭 Factory View" in tab_map:
-    with tab_map["🏭 Factory View"]:
-        st.subheader("Factory Queue")
+if "🔄 Update Status" in tab_map:
+    with tab_map["🔄 Update Status"]:
+        st.subheader("Order Status Queue")
         queue_status = st.selectbox("Show orders in status", STATUSES, index=1)
         all_orders = fetch_orders()
         queue_df = all_orders[all_orders["status"] == queue_status] if not all_orders.empty else all_orders
@@ -332,8 +342,13 @@ if "🏭 Factory View" in tab_map:
             st.info(f"No orders currently in '{queue_status}'.")
         else:
             queue_df = queue_df.sort_values("requested_date")
-            next_status_idx = STATUSES.index(queue_status) + 1
-            next_status = STATUSES[next_status_idx] if next_status_idx < len(STATUSES) else None
+            transition = STATUS_TRANSITIONS.get(queue_status)
+            next_status, allowed_roles = transition if transition else (None, [])
+            can_act = role in allowed_roles
+
+            if next_status and not can_act:
+                st.caption(f"👀 View-only here — moving '{queue_status}' → '{next_status}' "
+                           f"is done by: {', '.join(allowed_roles)}.")
 
             for _, row in queue_df.iterrows():
                 with st.container(border=True):
@@ -345,9 +360,12 @@ if "🏭 Factory View" in tab_map:
                         note = st.text_input("Note", key=f"note_{row['order_id']}",
                                               label_visibility="collapsed", placeholder="Optional note")
                     with c3:
-                        if next_status and st.button(f"Move to '{next_status}'", key=f"btn_{row['order_id']}"):
-                            update_order_status(int(row["order_id"]), next_status, "Factory", note)
-                            st.rerun()
+                        if next_status and can_act:
+                            if st.button(f"Move to '{next_status}'", key=f"btn_{row['order_id']}"):
+                                update_order_status(int(row["order_id"]), next_status, display_name, note)
+                                st.rerun()
+                        elif next_status:
+                            st.caption(f"Needs: {', '.join(allowed_roles)}")
 
 # ---- DASHBOARD ----
 with tab_map["📊 Dashboard"]:
