@@ -1,6 +1,6 @@
 import streamlit as st
 import pandas as pd
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from supabase import create_client, Client
 
 # ---------------------------------------------------------
@@ -118,7 +118,7 @@ def fetch_order_items(order_id) -> pd.DataFrame:
 
 def insert_order(customer_id, items, requested_date, notes, placed_by):
     """items: list of dicts with keys item, qty, unit"""
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     res = supabase.table("orders").insert({
         "customer_id": int(customer_id),
         "requested_date": str(requested_date),
@@ -147,7 +147,7 @@ def update_expected_delivery(order_id, new_date):
     ).eq("order_id", order_id).execute()
 
 def update_order_status(order_id, new_status, updated_by, note=""):
-    now = datetime.utcnow().isoformat()
+    now = datetime.now(timezone.utc).isoformat()
     supabase.table("orders").update({"status": new_status}).eq("order_id", order_id).execute()
     supabase.table("status_log").insert({
         "order_id": order_id, "status": new_status,
@@ -163,6 +163,17 @@ def fetch_status_log(order_id) -> pd.DataFrame:
 def insert_customer(name, region, rsm):
     supabase.table("customers").insert(
         {"name": name, "region": region, "rsm": rsm}).execute()
+
+def is_blank(value):
+    """True for None, NaN, NaT, or empty string — anything that should be
+    treated as 'no value set'. Plain `if value:` wrongly treats NaN as
+    truthy, which is how NaT ends up crashing st.date_input."""
+    if value is None or value == "":
+        return True
+    try:
+        return bool(pd.isna(value))
+    except (TypeError, ValueError):
+        return False
 
 def fmt_date(value):
     """ISO date/datetime string -> dd-mm-yyyy for display. Leaves blanks as '—'."""
@@ -338,7 +349,7 @@ if "➕ Order Entry" in tab_map:
         st.markdown("**Orders entered today**")
         all_orders_preview = fetch_orders()
         if not all_orders_preview.empty:
-            today = datetime.utcnow().strftime("%Y-%m-%d")
+            today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
             today_orders = all_orders_preview[
                 all_orders_preview["placed_at"].astype(str).str.startswith(today)
             ][["order_id", "customer_name", "items_summary", "status"]].rename(
@@ -378,7 +389,7 @@ with tab_map["📋 Order Tracker"]:
             orders_df = orders_df[mask]
 
         orders_df["days_open"] = orders_df["placed_at"].apply(
-            lambda x: (datetime.utcnow() - pd.to_datetime(x).to_pydatetime().replace(tzinfo=None)).days
+            lambda x: (datetime.now(timezone.utc) - pd.to_datetime(x, utc=True).to_pydatetime()).days
             if pd.notna(x) else None
         )
 
@@ -444,7 +455,7 @@ if "🔄 Update Status" in tab_map:
                         st.markdown(f"**Order #{row['order_id']}** — {row['customer_name']}")
                         st.caption(f"{row['items_summary']} · Requested by {fmt_date(row['requested_date'])}")
                         current_expected = row.get("expected_delivery_date")
-                        if current_expected:
+                        if not is_blank(current_expected):
                             st.caption(f"📅 Expected delivery: **{fmt_date(current_expected)}**")
                         else:
                             st.caption("📅 Expected delivery: _not set_")
@@ -467,8 +478,8 @@ if "🔄 Update Status" in tab_map:
                         with dc1:
                             try:
                                 default_date = (
-                                    pd.to_datetime(current_expected).date()
-                                    if current_expected else datetime.now().date()
+                                    datetime.now().date() if is_blank(current_expected)
+                                    else pd.to_datetime(current_expected).date()
                                 )
                             except Exception:
                                 default_date = datetime.now().date()
@@ -502,8 +513,8 @@ with tab_map["📊 Dashboard"]:
         delivered = all_orders[all_orders["status"] == "Delivered"]
         avg_days = "—"
         if not delivered.empty:
-            placed_dt = pd.to_datetime(delivered["placed_at"]).dt.tz_localize(None)
-            avg_days = f'{(datetime.utcnow() - placed_dt).dt.days.mean():.1f} days'
+            placed_dt = pd.to_datetime(delivered["placed_at"], utc=True)
+            avg_days = f'{(datetime.now(timezone.utc) - placed_dt).dt.days.mean():.1f} days'
         col4.metric("Avg. Age (Delivered)", avg_days)
     else:
         col2.metric("Open Orders", 0)
