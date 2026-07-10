@@ -369,8 +369,7 @@ st.markdown(f"""
 with st.sidebar:
     st.markdown("### 👤 Viewing as")
     role = st.selectbox("Role", ["Sales Coordinator", "Factory", "Regional Sales Person", "Management", "Admin"])
-    user_name = st.text_input("Your name", value="", placeholder="e.g. Priya Menon")
-    display_name = user_name.strip() if user_name.strip() else role
+    display_name = role
     st.caption("Role-based login (Supabase Auth) replaces this switch in the next phase.")
     st.divider()
     st.caption("Carob Technologies · Supabase-backed")
