@@ -219,6 +219,12 @@ def fmt_datetime(value):
         return "—"
     return dt_ist.strftime("%d-%m-%Y %H:%M") + " IST"
 
+def pdf_safe(text) -> str:
+    """fpdf2's core fonts (Helvetica) only support Latin-1 — anything
+    outside that (em-dashes, curly quotes, etc.) crashes the renderer.
+    Replace unsupported characters instead of failing."""
+    return str(text).encode("latin-1", "replace").decode("latin-1")
+
 def generate_order_pdf(order, items_df) -> bytes:
     """Build a single-page printable order sheet for the factory floor.
     order: dict-like (order_id, customer_name, region, rsm, status,
@@ -230,7 +236,7 @@ def generate_order_pdf(order, items_df) -> bytes:
     pdf.set_margin(15)
 
     pdf.set_font("Helvetica", "B", 18)
-    pdf.cell(0, 10, f"Order #{order.get('order_id')}", ln=1)
+    pdf.cell(0, 10, pdf_safe(f"Order #{order.get('order_id')}"), ln=1)
     pdf.set_font("Helvetica", "", 10)
     pdf.set_text_color(100, 100, 100)
     pdf.cell(0, 6, "Carob Technologies - BTP Order Sheet", ln=1)
@@ -242,9 +248,10 @@ def generate_order_pdf(order, items_df) -> bytes:
 
     def info_row(label, value):
         pdf.set_font("Helvetica", "B", 11)
-        pdf.cell(55, 8, label, border=0)
+        pdf.cell(55, 8, pdf_safe(label), border=0)
         pdf.set_font("Helvetica", "", 11)
-        pdf.cell(0, 8, str(value) if value not in (None, "", "nan") else "-", ln=1)
+        display_value = str(value) if value not in (None, "", "nan") else "-"
+        pdf.cell(0, 8, pdf_safe(display_value), ln=1)
 
     info_row("Customer:", order.get("customer_name"))
     info_row("Region:", order.get("region"))
@@ -270,9 +277,9 @@ def generate_order_pdf(order, items_df) -> bytes:
 
     pdf.set_font("Helvetica", "", 10)
     for _, row in items_df.iterrows():
-        pdf.cell(100, 8, str(row["item"]), border=1)
-        pdf.cell(40, 8, str(row["qty"]), border=1)
-        pdf.cell(40, 8, str(row["unit"]), border=1, ln=1)
+        pdf.cell(100, 8, pdf_safe(row["item"]), border=1)
+        pdf.cell(40, 8, pdf_safe(row["qty"]), border=1)
+        pdf.cell(40, 8, pdf_safe(row["unit"]), border=1, ln=1)
 
     notes = order.get("notes")
     if notes and str(notes).strip() and str(notes) != "nan":
@@ -280,7 +287,7 @@ def generate_order_pdf(order, items_df) -> bytes:
         pdf.set_font("Helvetica", "B", 11)
         pdf.cell(0, 8, "Notes:", ln=1)
         pdf.set_font("Helvetica", "", 10)
-        pdf.multi_cell(0, 6, str(notes))
+        pdf.multi_cell(0, 6, pdf_safe(notes))
 
     pdf.ln(14)
     pdf.set_font("Helvetica", "", 10)
