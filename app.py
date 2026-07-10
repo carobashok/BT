@@ -378,10 +378,10 @@ with st.sidebar:
 customers_df = fetch_customers()
 if customers_df.empty:
     st.warning(
-        f"No customers found in `{SCHEMA}.customers`. Run `sql/schema.sql` in the "
-        "Supabase SQL Editor to create tables and seed sample data."
+        f"No customers found in `{SCHEMA}.customers` yet. "
+        "Use the Admin tab (as Admin) to add your first customer — "
+        "Order Entry will unlock once at least one exists."
     )
-    st.stop()
 
 customer_map = dict(zip(customers_df["name"], customers_df["customer_id"]))
 products_df = fetch_products()
@@ -406,75 +406,81 @@ if "➕ Order Entry" in tab_map:
     with tab_map["➕ Order Entry"]:
         st.subheader("New Order Entry")
 
-        if "cart" not in st.session_state:
-            st.session_state.cart = []
-
-        cust_name = st.selectbox("Customer", sorted(customer_map.keys()))
-        cust_row = customers_df[customers_df["name"] == cust_name].iloc[0]
-        st.caption(f"Region: **{cust_row['region']}** · RSM: **{cust_row['rsm']}**")
-
-        if products_df.empty:
+        if customers_df.empty:
             st.warning(
-                "No products set up yet. Add at least one product in the "
-                "Admin tab before creating orders."
+                "No customers yet. Add at least one in the Admin tab "
+                "before creating orders."
             )
         else:
-            st.markdown("**Add items to this order**")
-            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
-            with c1:
-                item = st.selectbox("Item", sorted(products_df["name"]), key="cart_item")
-            with c2:
-                qty = st.number_input("Quantity", min_value=1, value=100, step=10, key="cart_qty")
-            with c3:
-                unit = st.selectbox("Unit", ["pcs", "kg", "boxes"], key="cart_unit")
-            with c4:
-                st.markdown("<div style='margin-top:1.8rem'></div>", unsafe_allow_html=True)
-                if st.button("➕ Add"):
-                    st.session_state.cart.append({"item": item, "qty": qty, "unit": unit})
-                    st.rerun()
+            if "cart" not in st.session_state:
+                st.session_state.cart = []
 
-        if st.session_state.cart:
-            st.markdown("**Items in this order**")
-            for i, line in enumerate(st.session_state.cart):
-                lc1, lc2 = st.columns([5, 1])
-                lc1.write(f"{line['item']} — {line['qty']} {line['unit']}")
-                if lc2.button("Remove", key=f"remove_{i}"):
-                    st.session_state.cart.pop(i)
-                    st.rerun()
-        else:
-            st.caption("No items added yet — add at least one item above before submitting.")
+            cust_name = st.selectbox("Customer", sorted(customer_map.keys()))
+            cust_row = customers_df[customers_df["name"] == cust_name].iloc[0]
+            st.caption(f"Region: **{cust_row['region']}** · RSM: **{cust_row['rsm']}**")
 
-        req_date = st.date_input("Requested Delivery Date",
-                                   value=datetime.now() + timedelta(days=7),
-                                   format="DD-MM-YYYY")
-        notes = st.text_area("Notes (optional)", height=68)
-
-        if st.button("Submit Order", type="primary", disabled=not st.session_state.cart):
-            order_id = insert_order(
-                cust_row["customer_id"], st.session_state.cart, req_date, notes, display_name)
-            st.success(f"Order #{order_id} placed for {cust_name} "
-                       f"({len(st.session_state.cart)} item(s))")
-            st.session_state.cart = []
-            st.rerun()
-
-        st.divider()
-        st.markdown("**Orders entered today**")
-        all_orders_preview = fetch_orders()
-        if not all_orders_preview.empty:
-            today_ist = datetime.now(IST).date()
-            placed_ist_dates = all_orders_preview["placed_at"].apply(
-                lambda x: to_ist(x).date() if to_ist(x) is not None else None
-            )
-            today_orders = all_orders_preview[
-                placed_ist_dates == today_ist
-            ][["order_id", "customer_name", "items_summary", "status"]].rename(
-                columns={"items_summary": "items"})
-            if today_orders.empty:
-                st.caption("No orders entered yet today.")
+            if products_df.empty:
+                st.warning(
+                    "No products set up yet. Add at least one product in the "
+                    "Admin tab before creating orders."
+                )
             else:
-                st.dataframe(today_orders, hide_index=True, width='stretch')
-        else:
-            st.caption("No orders entered yet today.")
+                st.markdown("**Add items to this order**")
+                c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+                with c1:
+                    item = st.selectbox("Item", sorted(products_df["name"]), key="cart_item")
+                with c2:
+                    qty = st.number_input("Quantity", min_value=1, value=100, step=10, key="cart_qty")
+                with c3:
+                    unit = st.selectbox("Unit", ["pcs", "kg", "boxes"], key="cart_unit")
+                with c4:
+                    st.markdown("<div style='margin-top:1.8rem'></div>", unsafe_allow_html=True)
+                    if st.button("➕ Add"):
+                        st.session_state.cart.append({"item": item, "qty": qty, "unit": unit})
+                        st.rerun()
+
+            if st.session_state.cart:
+                st.markdown("**Items in this order**")
+                for i, line in enumerate(st.session_state.cart):
+                    lc1, lc2 = st.columns([5, 1])
+                    lc1.write(f"{line['item']} — {line['qty']} {line['unit']}")
+                    if lc2.button("Remove", key=f"remove_{i}"):
+                        st.session_state.cart.pop(i)
+                        st.rerun()
+            else:
+                st.caption("No items added yet — add at least one item above before submitting.")
+
+            req_date = st.date_input("Requested Delivery Date",
+                                       value=datetime.now() + timedelta(days=7),
+                                       format="DD-MM-YYYY")
+            notes = st.text_area("Notes (optional)", height=68)
+
+            if st.button("Submit Order", type="primary", disabled=not st.session_state.cart):
+                order_id = insert_order(
+                    cust_row["customer_id"], st.session_state.cart, req_date, notes, display_name)
+                st.success(f"Order #{order_id} placed for {cust_name} "
+                           f"({len(st.session_state.cart)} item(s))")
+                st.session_state.cart = []
+                st.rerun()
+
+            st.divider()
+            st.markdown("**Orders entered today**")
+            all_orders_preview = fetch_orders()
+            if not all_orders_preview.empty:
+                today_ist = datetime.now(IST).date()
+                placed_ist_dates = all_orders_preview["placed_at"].apply(
+                    lambda x: to_ist(x).date() if to_ist(x) is not None else None
+                )
+                today_orders = all_orders_preview[
+                    placed_ist_dates == today_ist
+                ][["order_id", "customer_name", "items_summary", "status"]].rename(
+                    columns={"items_summary": "items"})
+                if today_orders.empty:
+                    st.caption("No orders entered yet today.")
+                else:
+                    st.dataframe(today_orders, hide_index=True, width='stretch')
+            else:
+                st.caption("No orders entered yet today.")
 
 # ---- ORDER TRACKER ----
 with tab_map["📋 Order Tracker"]:
