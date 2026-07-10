@@ -26,8 +26,8 @@ STATUS_COLORS = {
     "Delivered": "#16A34A",
 }
 REGIONS = ["North", "South", "East", "West"]
-ITEMS = ["Bearing Assembly", "Brake Pad Set", "Clutch Plate", "Gear Box Unit",
-         "Piston Ring Kit", "Radiator Core", "Suspension Arm", "Wiring Harness"]
+# Products are now managed in the database (Admin tab) instead of
+# hardcoded here — see fetch_products() / insert_product().
 
 # Who is allowed to move an order out of each status, and to which
 # next status(es). Some statuses have more than one valid next step —
@@ -84,6 +84,11 @@ def fetch_customers() -> pd.DataFrame:
     res = supabase.table("customers").select("*").order("name").execute()
     return pd.DataFrame(res.data) if res.data else pd.DataFrame(
         columns=["customer_id", "name", "region", "rsm", "created_at"])
+
+def fetch_products() -> pd.DataFrame:
+    res = supabase.table("products").select("*").order("name").execute()
+    return pd.DataFrame(res.data) if res.data else pd.DataFrame(
+        columns=["product_id", "name", "created_at"])
 
 def fetch_orders() -> pd.DataFrame:
     res = supabase.table("orders").select(
@@ -170,6 +175,9 @@ def fetch_status_log(order_id) -> pd.DataFrame:
 def insert_customer(name, region, rsm):
     supabase.table("customers").insert(
         {"name": name, "region": region, "rsm": rsm}).execute()
+
+def insert_product(name):
+    supabase.table("products").insert({"name": name}).execute()
 
 def is_blank(value):
     """True for None, NaN, NaT, or empty string — anything that should be
@@ -369,6 +377,7 @@ if customers_df.empty:
     st.stop()
 
 customer_map = dict(zip(customers_df["name"], customers_df["customer_id"]))
+products_df = fetch_products()
 
 # ---------------------------------------------------------
 # TABS
@@ -397,19 +406,25 @@ if "➕ Order Entry" in tab_map:
         cust_row = customers_df[customers_df["name"] == cust_name].iloc[0]
         st.caption(f"Region: **{cust_row['region']}** · RSM: **{cust_row['rsm']}**")
 
-        st.markdown("**Add items to this order**")
-        c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
-        with c1:
-            item = st.selectbox("Item", ITEMS, key="cart_item")
-        with c2:
-            qty = st.number_input("Quantity", min_value=1, value=100, step=10, key="cart_qty")
-        with c3:
-            unit = st.selectbox("Unit", ["pcs", "kg", "boxes"], key="cart_unit")
-        with c4:
-            st.markdown("<div style='margin-top:1.8rem'></div>", unsafe_allow_html=True)
-            if st.button("➕ Add"):
-                st.session_state.cart.append({"item": item, "qty": qty, "unit": unit})
-                st.rerun()
+        if products_df.empty:
+            st.warning(
+                "No products set up yet. Add at least one product in the "
+                "Admin tab before creating orders."
+            )
+        else:
+            st.markdown("**Add items to this order**")
+            c1, c2, c3, c4 = st.columns([3, 2, 2, 1])
+            with c1:
+                item = st.selectbox("Item", sorted(products_df["name"]), key="cart_item")
+            with c2:
+                qty = st.number_input("Quantity", min_value=1, value=100, step=10, key="cart_qty")
+            with c3:
+                unit = st.selectbox("Unit", ["pcs", "kg", "boxes"], key="cart_unit")
+            with c4:
+                st.markdown("<div style='margin-top:1.8rem'></div>", unsafe_allow_html=True)
+                if st.button("➕ Add"):
+                    st.session_state.cart.append({"item": item, "qty": qty, "unit": unit})
+                    st.rerun()
 
         if st.session_state.cart:
             st.markdown("**Items in this order**")
@@ -681,3 +696,28 @@ if "⚙️ Admin" in tab_map:
                 st.rerun()
             else:
                 st.warning("Enter customer name and RSM.")
+
+        st.divider()
+        st.subheader("Manage Products")
+        if products_df.empty:
+            st.caption("No products yet — add one below.")
+        else:
+            st.dataframe(products_df[["name"]].rename(columns={"name": "Product"}),
+                         hide_index=True, width='stretch')
+
+        st.markdown("**Add Product**")
+        pc1, pc2 = st.columns([3, 1])
+        with pc1:
+            new_product = st.text_input("Product Name", key="new_product_name")
+        with pc2:
+            st.markdown("<div style='margin-top:1.8rem'></div>", unsafe_allow_html=True)
+            if st.button("Add Product"):
+                if new_product.strip():
+                    if new_product.strip() in products_df["name"].values:
+                        st.warning(f"'{new_product.strip()}' already exists.")
+                    else:
+                        insert_product(new_product.strip())
+                        st.success(f"Added {new_product.strip()}")
+                        st.rerun()
+                else:
+                    st.warning("Enter a product name.")
