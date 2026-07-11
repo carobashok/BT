@@ -346,6 +346,19 @@ st.markdown(f"""
         background-color: {CARD_BG} !important;
         color: {TEXT} !important;
     }}
+    /* Selectbox inside the sidebar: the sidebar's own "make everything
+       light text" rule above otherwise wins and makes the dropdown's
+       text and arrow icon invisible on its white background. */
+    section[data-testid="stSidebar"] [data-baseweb="select"] > div {{
+        background-color: {CARD_BG} !important;
+        color: {NAVY} !important;
+    }}
+    section[data-testid="stSidebar"] [data-baseweb="select"] * {{
+        color: {NAVY} !important;
+    }}
+    section[data-testid="stSidebar"] [data-baseweb="select"] svg {{
+        fill: {NAVY} !important;
+    }}
 
     /* Top bar */
     .top-bar {{
