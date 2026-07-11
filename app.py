@@ -353,38 +353,42 @@ st.markdown(f"""
         border-radius: 10px; padding: 14px 24px; margin-bottom: 1.2rem;
         display: flex; align-items: center; justify-content: space-between;
     }}
-    .top-bar .brand {{ font-size: 18px; font-weight: 700; color: white !important; letter-spacing: 0.5px; }}
-    .top-bar .brand span {{ color: {GOLD} !important; }}
-    .top-bar .brand-sub {{ font-size: 11px; color: rgba(255,255,255,0.55) !important; margin-top: 2px; }}
-    .top-bar .org {{ font-size: 12px; color: rgba(255,255,255,0.5) !important; text-align: right; }}
+    .top-bar .brand, .stApp .top-bar .brand {{ font-size: 18px; font-weight: 700; color: white !important; letter-spacing: 0.5px; }}
+    .stApp .top-bar .brand span {{ color: {GOLD} !important; }}
+    .stApp .top-bar .brand-sub {{ font-size: 11px; color: rgba(255,255,255,0.55) !important; margin-top: 2px; }}
+    .stApp .top-bar .org {{ font-size: 12px; color: rgba(255,255,255,0.5) !important; text-align: right; }}
 
     /* Section header pills */
     .section-hdr {{
-        background: {NAVY}; color: {GOLD} !important;
+        background: {NAVY};
         padding: 8px 16px; border-radius: 8px;
         font-weight: 700; font-size: 12px; letter-spacing: 0.6px;
         text-transform: uppercase; margin: 1rem 0 0.8rem 0; display: inline-block;
     }}
+    .stApp .section-hdr, .stApp .section-hdr * {{ color: {GOLD} !important; }}
 
     /* KPI cards */
     .kpi-card {{
         background: {CARD_BG}; border-radius: 12px; padding: 16px 18px;
         border: 1px solid #E2E8F0; box-shadow: 0 1px 4px rgba(0,0,0,0.06); min-height: 100px;
     }}
-    .kpi-lbl {{ font-size: 11px; font-weight: 600; color: {MUTED_TEXT} !important;
+    .stApp .kpi-lbl {{ font-size: 11px; font-weight: 600; color: {MUTED_TEXT} !important;
         text-transform: uppercase; letter-spacing: 0.5px; }}
-    .kpi-val {{ font-size: 24px; font-weight: 700; color: {NAVY} !important; margin-top: 4px; }}
+    .stApp .kpi-val {{ font-size: 24px; font-weight: 700; color: {NAVY} !important; margin-top: 4px; }}
     .kpi-sub {{ font-size: 12px; font-weight: 600; margin-top: 6px; }}
     .kpi-icon {{ float: right; font-size: 20px; }}
-    .c-green {{ color: {GREEN} !important; }} .c-orange {{ color: {ORANGE} !important; }}
-    .c-red {{ color: {RED} !important; }} .c-blue {{ color: {BLUE} !important; }}
+    .stApp .kpi-sub.c-green {{ color: {GREEN} !important; }}
+    .stApp .kpi-sub.c-orange {{ color: {ORANGE} !important; }}
+    .stApp .kpi-sub.c-red {{ color: {RED} !important; }}
+    .stApp .kpi-sub.c-blue {{ color: {BLUE} !important; }}
 
     /* Status badges */
     .status-badge {{
         padding: 3px 10px; border-radius: 20px;
-        color: white !important; font-size: 0.75rem; font-weight: 700;
+        font-size: 0.75rem; font-weight: 700;
         display: inline-block;
     }}
+    .stApp .status-badge, .stApp .status-badge * {{ color: white !important; }}
 
     /* Tabs as pill nav */
     .stTabs [data-baseweb="tab-list"] {{
@@ -403,8 +407,8 @@ st.markdown(f"""
         background: {NAVY}; border-radius: 10px; padding: 8px 18px; margin-top: 1.5rem;
         display: flex; justify-content: space-between; align-items: center;
     }}
-    .app-footer span {{ color: rgba(255,255,255,0.45) !important; font-size: 11px; }}
-    .app-footer .powered {{ color: {GOLD} !important; font-weight: 700; font-size: 12px; }}
+    .stApp .app-footer span {{ color: rgba(255,255,255,0.45) !important; font-size: 11px; }}
+    .stApp .app-footer .powered {{ color: {GOLD} !important; font-weight: 700; font-size: 12px; }}
 </style>
 """, unsafe_allow_html=True)
 
