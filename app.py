@@ -356,8 +356,17 @@ st.markdown(f"""
     section[data-testid="stSidebar"] [data-baseweb="select"] * {{
         color: {NAVY} !important;
     }}
-    section[data-testid="stSidebar"] [data-baseweb="select"] svg {{
+    section[data-testid="stSidebar"] [data-baseweb="select"] svg,
+    section[data-testid="stSidebar"] [data-baseweb="select"] svg path {{
         fill: {NAVY} !important;
+    }}
+    /* While the dropdown is focused/searching, BaseWeb shows the current
+       value as a placeholder (separate from normal text color, and
+       browsers dim placeholders by default even when a color is set). */
+    section[data-testid="stSidebar"] [data-baseweb="select"] input::placeholder {{
+        color: {MUTED_TEXT} !important;
+        opacity: 1 !important;
+        -webkit-text-fill-color: {MUTED_TEXT} !important;
     }}
 
     /* Top bar */
