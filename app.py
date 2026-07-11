@@ -443,17 +443,22 @@ st.markdown(f"""
     }}
     .stApp .status-badge, .stApp .status-badge * {{ color: white !important; }}
 
-    /* Tabs as pill nav */
+    /* Tabs — flat underline style (matching another Carob app's design) */
     .stTabs [data-baseweb="tab-list"] {{
-        background: {NAVY}; border-radius: 10px; padding: 4px 8px; gap: 4px;
+        background: transparent; border-radius: 0; padding: 0 0 0 0;
+        gap: 28px; border-bottom: 1px solid #E2E8F0;
     }}
     .stTabs [data-baseweb="tab"] {{
-        color: rgba(255,255,255,0.65) !important; font-weight: 600;
-        font-size: 14px; border-radius: 8px; padding: 8px 18px;
+        background: transparent !important;
+        color: {MUTED_TEXT} !important; font-weight: 600;
+        font-size: 14px; padding: 8px 0; border-radius: 0;
     }}
-    .stTabs [data-baseweb="tab"] p {{ color: rgba(255,255,255,0.65) !important; font-weight: 600; }}
-    .stTabs [aria-selected="true"] {{ background: {GOLD} !important; }}
-    .stTabs [aria-selected="true"] p {{ color: {NAVY} !important; }}
+    .stTabs [data-baseweb="tab"] p {{ color: {MUTED_TEXT} !important; font-weight: 600; }}
+    .stTabs [aria-selected="true"] {{
+        background: transparent !important;
+        border-bottom: 2px solid {NAVY} !important;
+    }}
+    .stTabs [aria-selected="true"] p {{ color: {NAVY} !important; font-weight: 700; }}
 
     /* Footer */
     .app-footer {{
