@@ -623,38 +623,41 @@ with tab_map["📋 Order Tracker"]:
         st.caption(f"{len(display_df)} orders")
         st.dataframe(display_df, hide_index=True, width='stretch')
 
-        with st.expander("🔍 View order detail / status history"):
-            sel_id = st.selectbox("Order ID", display_df["Order ID"].tolist())
-            st.markdown("**Line items**")
-            items_detail = fetch_order_items(int(sel_id))
-            if not items_detail.empty:
-                items_detail = items_detail.rename(columns={
-                    "item": "Item", "qty": "Qty", "unit": "Unit"})[["Item", "Qty", "Unit"]]
-            st.dataframe(items_detail, hide_index=True, width='stretch')
-            st.markdown("**Status history**")
-            hist = fetch_status_log(int(sel_id))
-            if not hist.empty:
-                hist = hist.rename(columns={
-                    "status": "Status", "updated_by": "Updated By",
-                    "updated_at": "Updated At", "note": "Note"})[
-                    ["Status", "Updated By", "Updated At", "Note"]]
-                hist["Updated At"] = hist["Updated At"].apply(fmt_datetime)
-            st.dataframe(hist, hide_index=True, width='stretch')
+        if display_df.empty:
+            st.info("No orders match the current filters.")
+        else:
+            with st.expander("🔍 View order detail / status history"):
+                sel_id = st.selectbox("Order ID", display_df["Order ID"].tolist())
+                st.markdown("**Line items**")
+                items_detail = fetch_order_items(int(sel_id))
+                if not items_detail.empty:
+                    items_detail = items_detail.rename(columns={
+                        "item": "Item", "qty": "Qty", "unit": "Unit"})[["Item", "Qty", "Unit"]]
+                st.dataframe(items_detail, hide_index=True, width='stretch')
+                st.markdown("**Status history**")
+                hist = fetch_status_log(int(sel_id))
+                if not hist.empty:
+                    hist = hist.rename(columns={
+                        "status": "Status", "updated_by": "Updated By",
+                        "updated_at": "Updated At", "note": "Note"})[
+                        ["Status", "Updated By", "Updated At", "Note"]]
+                    hist["Updated At"] = hist["Updated At"].apply(fmt_datetime)
+                st.dataframe(hist, hide_index=True, width='stretch')
 
-            if role in ["Factory", "Admin"]:
-                st.divider()
-                st.markdown("**🖨️ Printable order sheet**")
-                order_row = orders_df[orders_df["order_id"] == sel_id].iloc[0]
-                raw_items = fetch_order_items(int(sel_id))
-                pdf_bytes = generate_order_pdf(order_row, raw_items)
-                st.download_button(
-                    "Download PDF",
-                    data=pdf_bytes,
-                    file_name=f"Order_{sel_id}.pdf",
-                    mime="application/pdf",
-                    key=f"pdf_{sel_id}",
-                )
-                st.caption("Download, then print from any browser — hand this to the factory.")
+                if role in ["Factory", "Admin"]:
+                    st.divider()
+                    st.markdown("**🖨️ Printable order sheet**")
+                    order_row = orders_df[orders_df["order_id"] == sel_id].iloc[0]
+                    raw_items = fetch_order_items(int(sel_id))
+                    pdf_bytes = generate_order_pdf(order_row, raw_items)
+                    st.download_button(
+                        "Download PDF",
+                        data=pdf_bytes,
+                        file_name=f"Order_{sel_id}.pdf",
+                        mime="application/pdf",
+                        key=f"pdf_{sel_id}",
+                    )
+                    st.caption("Download, then print from any browser — hand this to the factory.")
     else:
         st.info("No orders yet. Add one from the Order Entry tab.")
 
