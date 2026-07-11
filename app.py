@@ -349,10 +349,30 @@ st.markdown(f"""
     /* Selectbox inside the sidebar: the sidebar's own "make everything
        light text" rule above otherwise wins and makes the dropdown's
        text and arrow icon invisible on its white background.
-       Repeating [data-baseweb="select"] doesn't change what it matches
-       but does brute-force the specificity above Streamlit's own
-       internal styling, which was still winning with a single-repeat
-       scoped selector. */
+       Scoping off Streamlit's own stSelectbox testid rather than
+       BaseWeb's internal [data-baseweb="select"] — repeated attempts
+       targeting the latter didn't work at all, suggesting it isn't
+       the right element in this Streamlit version. testid is stable
+       across versions since Streamlit adds it itself. */
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"][data-testid="stSelectbox"][data-testid="stSelectbox"] {{
+        background-color: {CARD_BG} !important;
+    }}
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"][data-testid="stSelectbox"][data-testid="stSelectbox"] * {{
+        color: {NAVY} !important;
+        -webkit-text-fill-color: {NAVY} !important;
+        fill: {NAVY} !important;
+        background-color: transparent;
+    }}
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"][data-testid="stSelectbox"][data-testid="stSelectbox"] > div {{
+        background-color: {CARD_BG} !important;
+    }}
+    section[data-testid="stSidebar"] [data-testid="stSelectbox"][data-testid="stSelectbox"][data-testid="stSelectbox"] input::placeholder {{
+        color: {MUTED_TEXT} !important;
+        opacity: 1 !important;
+        -webkit-text-fill-color: {MUTED_TEXT} !important;
+    }}
+    /* Belt-and-braces: keep the baseweb-targeted version too in case
+       it does match in some Streamlit versions. */
     section[data-testid="stSidebar"] [data-baseweb="select"][data-baseweb="select"][data-baseweb="select"] > div {{
         background-color: {CARD_BG} !important;
         color: {NAVY} !important;
