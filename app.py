@@ -10,20 +10,25 @@ from fpdf import FPDF
 # ---------------------------------------------------------
 st.set_page_config(page_title="Carob Order Tracker", page_icon="📦", layout="wide")
 
-NAVY = "#0D1B2A"
-ACCENT = "#2563EB"
-BG = "#0D1B2A"
-CARD_BG = "#16273D"
-TEXT = "#F0F4FA"
-MUTED_TEXT = "#93A4BD"
+NAVY = "#0C2340"
+GOLD = "#F5A800"
+BLUE = "#1A6FC4"
+TEAL = "#0D9488"
+GREEN = "#16A34A"
+ORANGE = "#D97706"
+RED = "#EF4444"
+BG = "#F1F5F9"
+CARD_BG = "#FFFFFF"
+TEXT = "#0C2340"
+MUTED_TEXT = "#475569"
 
 STATUSES = ["Placed", "Confirmed", "In Production", "Dispatched", "Delivered"]
 STATUS_COLORS = {
-    "Placed": "#94A3B8",
-    "Confirmed": "#2563EB",
-    "In Production": "#F59E0B",
-    "Dispatched": "#8B5CF6",
-    "Delivered": "#16A34A",
+    "Placed": "#64748B",
+    "Confirmed": BLUE,
+    "In Production": ORANGE,
+    "Dispatched": TEAL,
+    "Delivered": GREEN,
 }
 REGIONS = ["North", "South", "East", "West"]
 # Products are now managed in the database (Admin tab) instead of
@@ -303,30 +308,35 @@ def generate_order_pdf(order, items_df) -> bytes:
 # ---------------------------------------------------------
 st.markdown(f"""
 <style>
+    #MainMenu, footer, header {{ visibility: hidden; }}
+
     html, body,
     .stApp,
     [data-testid="stAppViewContainer"],
     [data-testid="stHeader"],
     [data-testid="stMain"],
-    .main {{
+    .main,
+    .block-container {{
         background-color: {BG} !important;
     }}
+    .block-container {{ padding-top: 1rem !important; }}
+
     .stApp, .stApp p, .stApp span, .stApp label, .stApp li, .stApp div {{ color: {TEXT} !important; }}
-    h1, h2, h3, h4, h5, h6 {{ color: {TEXT} !important; }}
+    h1, h2, h3, h4, h5, h6 {{ color: {NAVY} !important; }}
     .stMarkdown, .stCaption, [data-testid="stCaptionContainer"] {{ color: {MUTED_TEXT} !important; }}
     [data-testid="stMetricLabel"] p {{ color: {MUTED_TEXT} !important; }}
-    [data-testid="stMetricValue"] {{ color: {TEXT} !important; }}
-    [data-testid="stMetricValue"] div {{ color: {TEXT} !important; }}
+    [data-testid="stMetricValue"] {{ color: {NAVY} !important; }}
+    [data-testid="stMetricValue"] div {{ color: {NAVY} !important; }}
     [data-testid="stWidgetLabel"] p {{ color: {TEXT} !important; }}
-    section[data-testid="stSidebar"] {{ background-color: {CARD_BG} !important; }}
-    section[data-testid="stSidebar"] * {{ color: {TEXT} !important; }}
-    .stTabs [data-baseweb="tab"] {{ color: {MUTED_TEXT} !important; }}
-    .stTabs [data-baseweb="tab"] p {{ color: {MUTED_TEXT} !important; }}
-    .stTabs [aria-selected="true"] {{ color: {ACCENT} !important; }}
-    .stTabs [aria-selected="true"] p {{ color: {ACCENT} !important; }}
+
+    section[data-testid="stSidebar"] {{ background-color: {NAVY} !important; }}
+    section[data-testid="stSidebar"] * {{ color: #F1F5F9 !important; }}
+
     .stDataFrame, .stDataFrame * {{ color: {TEXT} !important; }}
     [data-testid="stContainer"], div[data-testid="stVerticalBlockBorderWrapper"] {{
         background-color: {CARD_BG} !important;
+        border: 1px solid #E2E8F0 !important;
+        border-radius: 10px !important;
     }}
     input, textarea, select {{
         background-color: {CARD_BG} !important;
@@ -336,30 +346,97 @@ st.markdown(f"""
         background-color: {CARD_BG} !important;
         color: {TEXT} !important;
     }}
-    .main-header {{
-        background-color: {CARD_BG} !important;
-        padding: 1.2rem 1.5rem;
-        border-radius: 8px;
-        margin-bottom: 1.5rem;
-        border: 1px solid #223349;
+
+    /* Top bar */
+    .top-bar {{
+        background: {NAVY}; border-bottom: 3px solid {GOLD};
+        border-radius: 10px; padding: 14px 24px; margin-bottom: 1.2rem;
+        display: flex; align-items: center; justify-content: space-between;
     }}
-    .main-header h1, .main-header h1 * {{ color: white !important; margin: 0; font-size: 1.5rem; }}
-    .main-header p {{ color: #93C5FD !important; margin: 0; font-size: 0.9rem; }}
+    .top-bar .brand {{ font-size: 18px; font-weight: 700; color: white !important; letter-spacing: 0.5px; }}
+    .top-bar .brand span {{ color: {GOLD} !important; }}
+    .top-bar .brand-sub {{ font-size: 11px; color: rgba(255,255,255,0.55) !important; margin-top: 2px; }}
+    .top-bar .org {{ font-size: 12px; color: rgba(255,255,255,0.5) !important; text-align: right; }}
+
+    /* Section header pills */
+    .section-hdr {{
+        background: {NAVY}; color: {GOLD} !important;
+        padding: 8px 16px; border-radius: 8px;
+        font-weight: 700; font-size: 12px; letter-spacing: 0.6px;
+        text-transform: uppercase; margin: 1rem 0 0.8rem 0; display: inline-block;
+    }}
+
+    /* KPI cards */
+    .kpi-card {{
+        background: {CARD_BG}; border-radius: 12px; padding: 16px 18px;
+        border: 1px solid #E2E8F0; box-shadow: 0 1px 4px rgba(0,0,0,0.06); min-height: 100px;
+    }}
+    .kpi-lbl {{ font-size: 11px; font-weight: 600; color: {MUTED_TEXT} !important;
+        text-transform: uppercase; letter-spacing: 0.5px; }}
+    .kpi-val {{ font-size: 24px; font-weight: 700; color: {NAVY} !important; margin-top: 4px; }}
+    .kpi-sub {{ font-size: 12px; font-weight: 600; margin-top: 6px; }}
+    .kpi-icon {{ float: right; font-size: 20px; }}
+    .c-green {{ color: {GREEN} !important; }} .c-orange {{ color: {ORANGE} !important; }}
+    .c-red {{ color: {RED} !important; }} .c-blue {{ color: {BLUE} !important; }}
+
+    /* Status badges */
     .status-badge {{
-        padding: 3px 10px;
-        border-radius: 12px;
-        color: white !important;
-        font-size: 0.75rem;
-        font-weight: 600;
+        padding: 3px 10px; border-radius: 20px;
+        color: white !important; font-size: 0.75rem; font-weight: 700;
         display: inline-block;
     }}
+
+    /* Tabs as pill nav */
+    .stTabs [data-baseweb="tab-list"] {{
+        background: {NAVY}; border-radius: 10px; padding: 4px 8px; gap: 4px;
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        color: rgba(255,255,255,0.65) !important; font-weight: 600;
+        font-size: 14px; border-radius: 8px; padding: 8px 18px;
+    }}
+    .stTabs [data-baseweb="tab"] p {{ color: rgba(255,255,255,0.65) !important; font-weight: 600; }}
+    .stTabs [aria-selected="true"] {{ background: {GOLD} !important; }}
+    .stTabs [aria-selected="true"] p {{ color: {NAVY} !important; }}
+
+    /* Footer */
+    .app-footer {{
+        background: {NAVY}; border-radius: 10px; padding: 8px 18px; margin-top: 1.5rem;
+        display: flex; justify-content: space-between; align-items: center;
+    }}
+    .app-footer span {{ color: rgba(255,255,255,0.45) !important; font-size: 11px; }}
+    .app-footer .powered {{ color: {GOLD} !important; font-weight: 700; font-size: 12px; }}
 </style>
 """, unsafe_allow_html=True)
 
+def section_header(text):
+    st.markdown(f'<div class="section-hdr">{text}</div>', unsafe_allow_html=True)
+
+def kpi_card(col, value, label, sub, color_class="c-blue", icon="📦"):
+    with col:
+        st.markdown(f"""
+        <div class="kpi-card">
+            <span class="kpi-icon">{icon}</span>
+            <div class="kpi-lbl">{label}</div>
+            <div class="kpi-val">{value}</div>
+            <div class="kpi-sub {color_class}">{sub}</div>
+        </div>
+        """, unsafe_allow_html=True)
+
+def status_badge_html(status):
+    color = STATUS_COLORS.get(status, "#64748B")
+    return f'<span class="status-badge" style="background-color:{color}">{status}</span>'
+
 st.markdown(f"""
-<div class="main-header">
-    <h1>📦 Order Tracker</h1>
-    <p>Carob Technologies — Customer to Factory order visibility</p>
+<div class="top-bar">
+    <div>
+        <div class="brand">📦 <span>C</span>AROB ORDER TRACKER</div>
+        <div class="brand-sub">Customer to Factory order visibility</div>
+    </div>
+    <div style="text-align:center;">
+        <div style="font-size:15px;font-weight:700;color:white;">BTP Order Tracking Portal</div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.5);">Powered by Carob Technologies</div>
+    </div>
+    <div class="org">Carob Technologies</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -403,7 +480,7 @@ tab_map = dict(zip(tab_names, tabs))
 # ---- ORDER ENTRY ----
 if "➕ Order Entry" in tab_map:
     with tab_map["➕ Order Entry"]:
-        st.subheader("New Order Entry")
+        section_header("New Order Entry")
 
         if customers_df.empty:
             st.warning(
@@ -483,7 +560,7 @@ if "➕ Order Entry" in tab_map:
 
 # ---- ORDER TRACKER ----
 with tab_map["📋 Order Tracker"]:
-    st.subheader("All Orders")
+    section_header("All Orders")
     col1, col2, col3, col4 = st.columns(4)
     with col1:
         f_customer = st.multiselect("Customer", sorted(customer_map.keys()))
@@ -567,8 +644,9 @@ with tab_map["📋 Order Tracker"]:
 # ---- FACTORY VIEW ----
 if "🔄 Update Status" in tab_map:
     with tab_map["🔄 Update Status"]:
-        st.subheader("Order Status Queue")
+        section_header("Order Status Queue")
         queue_status = st.selectbox("Show orders in status", STATUSES, index=1)
+        st.markdown(status_badge_html(queue_status), unsafe_allow_html=True)
         all_orders = fetch_orders()
         queue_df = all_orders[all_orders["status"] == queue_status] if not all_orders.empty else all_orders
 
@@ -649,28 +727,30 @@ if "🔄 Update Status" in tab_map:
 
 # ---- DASHBOARD ----
 with tab_map["📊 Dashboard"]:
-    st.subheader("Overview")
+    section_header("Overview")
     all_orders = fetch_orders()
 
     col1, col2, col3, col4 = st.columns(4)
-    col1.metric("Total Orders", len(all_orders))
+    total_orders = len(all_orders)
     if not all_orders.empty:
-        col2.metric("Open Orders", len(all_orders[all_orders["status"] != "Delivered"]))
-        col3.metric("Dispatched/Delivered",
-                    len(all_orders[all_orders["status"].isin(["Dispatched", "Delivered"])]))
+        open_orders = len(all_orders[all_orders["status"] != "Delivered"])
+        dispatched_delivered = len(all_orders[all_orders["status"].isin(["Dispatched", "Delivered"])])
         delivered = all_orders[all_orders["status"] == "Delivered"]
         avg_days = "—"
         if not delivered.empty:
             placed_dt = pd.to_datetime(delivered["placed_at"], utc=True)
             avg_days = f'{(datetime.now(timezone.utc) - placed_dt).dt.days.mean():.1f} days'
-        col4.metric("Avg. Age (Delivered)", avg_days)
     else:
-        col2.metric("Open Orders", 0)
-        col3.metric("Dispatched/Delivered", 0)
-        col4.metric("Avg. Age (Delivered)", "—")
+        open_orders, dispatched_delivered, avg_days = 0, 0, "—"
 
-    st.divider()
+    kpi_card(col1, total_orders, "Total Orders", "All time", "c-blue", "📦")
+    kpi_card(col2, open_orders, "Open Orders", "In progress", "c-orange", "⏳")
+    kpi_card(col3, dispatched_delivered, "Dispatched / Delivered", "Fulfilled so far", "c-green", "🚚")
+    kpi_card(col4, avg_days, "Avg. Age (Delivered)", "Placed to delivered", "c-blue", "📅")
+    st.markdown("<br>", unsafe_allow_html=True)
+
     if not all_orders.empty:
+        section_header("Status & Regional Breakdown")
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("**Orders by Status**")
@@ -681,6 +761,7 @@ with tab_map["📊 Dashboard"]:
             region_counts = all_orders["region"].value_counts()
             st.bar_chart(region_counts)
 
+        section_header("Customer Activity")
         st.markdown("**Top Customers by Order Count**")
         top_cust = all_orders["customer_name"].value_counts().head(8)
         st.bar_chart(top_cust)
@@ -690,7 +771,7 @@ with tab_map["📊 Dashboard"]:
 # ---- ADMIN ----
 if "⚙️ Admin" in tab_map:
     with tab_map["⚙️ Admin"]:
-        st.subheader("Manage Customers")
+        section_header("Manage Customers")
         st.dataframe(customers_df, hide_index=True, width='stretch')
 
         st.markdown("**Add Customer**")
@@ -710,7 +791,7 @@ if "⚙️ Admin" in tab_map:
                 st.warning("Enter customer name and RSM.")
 
         st.divider()
-        st.subheader("Manage Products")
+        section_header("Manage Products")
         if products_df.empty:
             st.caption("No products yet — add one below.")
         else:
@@ -733,3 +814,14 @@ if "⚙️ Admin" in tab_map:
                         st.rerun()
                 else:
                     st.warning("Enter a product name.")
+
+# ---------------------------------------------------------
+# FOOTER
+# ---------------------------------------------------------
+st.markdown(f"""
+<div class="app-footer">
+    <span>BTP Order Tracking Portal</span>
+    <span class="powered">Powered by Carob Technologies</span>
+    <span>Viewing as: {role}</span>
+</div>
+""", unsafe_allow_html=True)
