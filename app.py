@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
+from io import BytesIO
 from supabase import create_client, Client
 from fpdf import FPDF
 
@@ -180,6 +181,22 @@ def fetch_status_log(order_id) -> pd.DataFrame:
 def insert_customer(name, region, rsm):
     supabase.table("customers").insert(
         {"name": name, "region": region, "rsm": rsm}).execute()
+
+def insert_customers_bulk(records):
+    """records: list of dicts with keys name, region, rsm"""
+    if records:
+        supabase.table("customers").insert(records).execute()
+
+def build_customer_template_xlsx() -> bytes:
+    """Small downloadable template so the columns/format are unambiguous."""
+    template_df = pd.DataFrame([
+        {"Customer Name": "Sri Auto Components #1", "Region": "South", "RSM": "Arun Kumar"},
+        {"Customer Name": "Balaji Engineering Works #2", "Region": "North", "RSM": "Priya Menon"},
+    ])
+    buf = BytesIO()
+    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
+        template_df.to_excel(writer, index=False, sheet_name="Customers")
+    return buf.getvalue()
 
 def insert_product(name):
     supabase.table("products").insert({"name": name}).execute()
@@ -854,6 +871,96 @@ if "⚙️ Admin" in tab_map:
                 st.rerun()
             else:
                 st.warning("Enter customer name and RSM.")
+
+        with st.expander("📤 Bulk upload customers via Excel"):
+            st.caption(
+                "Columns needed: **Customer Name**, **Region**, **RSM**. "
+                "Region must be one of: " + ", ".join(REGIONS) + "."
+            )
+            st.download_button(
+                "Download template",
+                data=build_customer_template_xlsx(),
+                file_name="customer_upload_template.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
+
+            uploaded_file = st.file_uploader(
+                "Upload customers Excel", type=["xlsx"], key="customer_bulk_upload"
+            )
+
+            if uploaded_file:
+                try:
+                    raw_df = pd.read_excel(uploaded_file, engine="openpyxl")
+                except Exception as e:
+                    st.error("Couldn't read that file — make sure it's a valid .xlsx file.")
+                    st.exception(e)
+                    raw_df = None
+
+                if raw_df is not None and raw_df.empty:
+                    st.warning("That file has no rows.")
+                elif raw_df is not None:
+                    cols_lower = {str(c).lower().strip(): c for c in raw_df.columns}
+
+                    def find_col(candidates):
+                        for cand in candidates:
+                            if cand in cols_lower:
+                                return cols_lower[cand]
+                        return None
+
+                    name_col = find_col(["customer name", "name", "customer"])
+                    region_col = find_col(["region"])
+                    rsm_col = find_col(["rsm", "rsm name", "regional sales person", "sales person"])
+
+                    if not all([name_col, region_col, rsm_col]):
+                        st.error(
+                            "Couldn't find all required columns (Customer Name, Region, RSM). "
+                            "Check the header row matches the template."
+                        )
+                    else:
+                        existing_names = set(
+                            customers_df["name"].str.strip().str.lower()
+                        ) if not customers_df.empty else set()
+                        seen_in_file = set()
+                        preview_rows = []
+                        valid_records = []
+
+                        for _, r in raw_df.iterrows():
+                            name = str(r[name_col]).strip() if pd.notna(r.get(name_col)) else ""
+                            region_raw = str(r[region_col]).strip() if pd.notna(r.get(region_col)) else ""
+                            rsm = str(r[rsm_col]).strip() if pd.notna(r.get(rsm_col)) else ""
+                            region_match = next(
+                                (rg for rg in REGIONS if rg.lower() == region_raw.lower()), None)
+
+                            if not name or not rsm:
+                                status = "⚠️ Missing name/RSM"
+                            elif not region_match:
+                                status = f"⚠️ Invalid region '{region_raw}'"
+                            elif name.lower() in existing_names:
+                                status = "⏭️ Duplicate (already exists)"
+                            elif name.lower() in seen_in_file:
+                                status = "⏭️ Duplicate (in this file)"
+                            else:
+                                status = "✅ Ready"
+                                seen_in_file.add(name.lower())
+                                valid_records.append(
+                                    {"name": name, "region": region_match, "rsm": rsm})
+
+                            preview_rows.append({
+                                "Customer Name": name or "(blank)",
+                                "Region": region_match or region_raw or "(blank)",
+                                "RSM": rsm or "(blank)",
+                                "Status": status,
+                            })
+
+                        preview_df = pd.DataFrame(preview_rows)
+                        st.dataframe(preview_df, hide_index=True, width='stretch')
+                        st.caption(f"{len(valid_records)} of {len(preview_df)} rows ready to upload.")
+
+                        if valid_records:
+                            if st.button(f"Upload {len(valid_records)} customer(s)", type="primary"):
+                                insert_customers_bulk(valid_records)
+                                st.success(f"Added {len(valid_records)} customer(s).")
+                                st.rerun()
 
         st.divider()
         section_header("Manage Products")
