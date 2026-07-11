@@ -348,22 +348,33 @@ st.markdown(f"""
     }}
     /* Selectbox inside the sidebar: the sidebar's own "make everything
        light text" rule above otherwise wins and makes the dropdown's
-       text and arrow icon invisible on its white background. */
-    section[data-testid="stSidebar"] [data-baseweb="select"] > div {{
+       text and arrow icon invisible on its white background.
+       Repeating [data-baseweb="select"] doesn't change what it matches
+       but does brute-force the specificity above Streamlit's own
+       internal styling, which was still winning with a single-repeat
+       scoped selector. */
+    section[data-testid="stSidebar"] [data-baseweb="select"][data-baseweb="select"][data-baseweb="select"] > div {{
         background-color: {CARD_BG} !important;
         color: {NAVY} !important;
     }}
-    section[data-testid="stSidebar"] [data-baseweb="select"] * {{
+    section[data-testid="stSidebar"] [data-baseweb="select"][data-baseweb="select"][data-baseweb="select"] * {{
         color: {NAVY} !important;
+        -webkit-text-fill-color: {NAVY} !important;
     }}
-    section[data-testid="stSidebar"] [data-baseweb="select"] svg,
-    section[data-testid="stSidebar"] [data-baseweb="select"] svg path {{
+    section[data-testid="stSidebar"] [data-baseweb="select"][data-baseweb="select"][data-baseweb="select"] svg,
+    section[data-testid="stSidebar"] [data-baseweb="select"][data-baseweb="select"][data-baseweb="select"] svg path {{
         fill: {NAVY} !important;
+    }}
+    /* Fallback in case the arrow icon is rendered via CSS mask +
+       background-color instead of SVG fill (some icon-font systems). */
+    section[data-testid="stSidebar"] [data-baseweb="select"][data-baseweb="select"][data-baseweb="select"] [data-testid*="Icon"] {{
+        background-color: {NAVY} !important;
+        color: {NAVY} !important;
     }}
     /* While the dropdown is focused/searching, BaseWeb shows the current
        value as a placeholder (separate from normal text color, and
        browsers dim placeholders by default even when a color is set). */
-    section[data-testid="stSidebar"] [data-baseweb="select"] input::placeholder {{
+    section[data-testid="stSidebar"] [data-baseweb="select"][data-baseweb="select"][data-baseweb="select"] input::placeholder {{
         color: {MUTED_TEXT} !important;
         opacity: 1 !important;
         -webkit-text-fill-color: {MUTED_TEXT} !important;
