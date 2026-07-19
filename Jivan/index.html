@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Jivan LLP Order Tracking &amp; Distribution Portal</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+
+<style>
+    :root {
+        --navy: #0C2340;
+        --gold: #F5A800;
+        --bg: #F1F5F9;
+        --card-bg: #FFFFFF;
+        --text: #0C2340;
+        --muted: #475569;
+        --border: #E2E8F0;
+        --green: #16A34A;
+        --orange: #D97706;
+        --red: #EF4444;
+        --blue: #1A6FC4;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        font-family: 'Inter', -apple-system, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+    }
+    #root { min-height: 100vh; }
+
+    /* ---- Login screen ---- */
+    .login-wrap {
+        min-height: 100vh;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 20px;
+    }
+    .login-card {
+        background: var(--card-bg);
+        border-radius: 14px;
+        padding: 40px 36px;
+        width: 100%;
+        max-width: 380px;
+        box-shadow: 0 4px 24px rgba(12,35,64,0.08);
+        border-top: 4px solid var(--gold);
+    }
+    .login-brand { font-size: 13px; font-weight: 700; color: var(--navy); letter-spacing: 0.5px; margin-bottom: 4px; }
+    .login-title { font-size: 22px; font-weight: 800; color: var(--navy); margin: 0 0 4px 0; }
+    .login-sub { font-size: 13px; color: var(--muted); margin: 0 0 28px 0; }
+    .field-label { font-size: 13px; font-weight: 600; color: var(--text); display: block; margin-bottom: 6px; }
+    .field-input {
+        width: 100%; padding: 10px 12px; margin-bottom: 18px;
+        border: 1px solid var(--border); border-radius: 8px;
+        font-size: 14px; font-family: inherit; color: var(--text);
+        background: white;
+    }
+    .field-input:focus { outline: none; border-color: var(--gold); box-shadow: 0 0 0 3px rgba(245,168,0,0.15); }
+    .btn-primary {
+        width: 100%; padding: 11px; border: none; border-radius: 8px;
+        background: var(--navy); color: white; font-weight: 700; font-size: 14px;
+        cursor: pointer; font-family: inherit;
+    }
+    .btn-primary:hover { background: #123159; }
+    .btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
+    .login-error {
+        background: #FEF2F2; color: #B91C1C; border: 1px solid #FECACA;
+        border-radius: 8px; padding: 10px 12px; font-size: 13px; margin-bottom: 16px;
+    }
+
+    /* ---- App shell ---- */
+    .app-shell { display: flex; min-height: 100vh; }
+    .sidebar {
+        width: 240px; background: var(--navy); color: white;
+        padding: 24px 18px; flex-shrink: 0;
+        display: flex; flex-direction: column;
+    }
+    .sidebar-brand { font-size: 15px; font-weight: 800; letter-spacing: 0.4px; margin-bottom: 2px; }
+    .sidebar-brand span { color: var(--gold); }
+    .sidebar-sub { font-size: 11px; color: rgba(255,255,255,0.5); margin-bottom: 28px; }
+    .sidebar-user { background: rgba(255,255,255,0.06); border-radius: 10px; padding: 12px 14px; margin-bottom: 22px; }
+    .sidebar-user-name { font-size: 14px; font-weight: 700; }
+    .sidebar-user-role { font-size: 12px; color: var(--gold); margin-top: 2px; }
+    .sidebar-user-region { font-size: 11px; color: rgba(255,255,255,0.55); margin-top: 4px; }
+    .nav-link {
+        display: block; padding: 10px 12px; border-radius: 8px;
+        color: rgba(255,255,255,0.75); font-size: 14px; font-weight: 600;
+        text-decoration: none; margin-bottom: 4px; cursor: pointer;
+        border: none; background: transparent; width: 100%; text-align: left;
+        font-family: inherit;
+    }
+    .nav-link:hover { background: rgba(255,255,255,0.06); color: white; }
+    .nav-link.active { background: var(--gold); color: var(--navy); }
+    .sidebar-logout {
+        margin-top: auto; padding: 10px 12px; border-radius: 8px;
+        color: rgba(255,255,255,0.6); font-size: 13px; font-weight: 600;
+        border: 1px solid rgba(255,255,255,0.15); background: transparent;
+        cursor: pointer; font-family: inherit;
+    }
+    .sidebar-logout:hover { color: white; border-color: rgba(255,255,255,0.35); }
+
+    .main-area { flex: 1; padding: 28px 36px; min-width: 0; }
+    .page-title { font-size: 22px; font-weight: 800; color: var(--navy); margin: 0 0 6px 0; }
+    .page-sub { font-size: 13px; color: var(--muted); margin: 0 0 24px 0; }
+
+    .placeholder-card {
+        background: var(--card-bg); border: 1px dashed var(--border);
+        border-radius: 12px; padding: 40px; text-align: center; color: var(--muted);
+    }
+    .placeholder-card strong { color: var(--navy); display: block; margin-bottom: 6px; font-size: 15px; }
+
+    .loading-wrap { min-height: 100vh; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 14px; }
+
+    /* ---- Master data sections (Admin) ---- */
+    .master-section {
+        background: var(--card-bg); border: 1px solid var(--border);
+        border-radius: 12px; padding: 20px 22px; margin-bottom: 20px;
+    }
+    .section-title { font-size: 16px; font-weight: 700; color: var(--navy); margin: 0 0 14px 0; }
+    .muted-text { color: var(--muted); font-size: 13px; margin: 0 0 14px 0; }
+    .data-table { width: 100%; border-collapse: collapse; margin-bottom: 16px; font-size: 13px; }
+    .data-table th {
+        text-align: left; padding: 8px 10px; background: var(--bg);
+        color: var(--muted); font-weight: 600; font-size: 11px;
+        text-transform: uppercase; letter-spacing: 0.4px;
+        border-bottom: 1px solid var(--border);
+    }
+    .data-table td { padding: 8px 10px; border-bottom: 1px solid var(--border); color: var(--text); }
+    .inline-form { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+    .field-input-sm {
+        padding: 7px 10px; border: 1px solid var(--border); border-radius: 6px;
+        font-size: 13px; font-family: inherit; color: var(--text); background: white;
+        min-width: 140px;
+    }
+    .field-input-sm:focus { outline: none; border-color: var(--gold); }
+    .btn-small {
+        padding: 7px 16px; border: none; border-radius: 6px;
+        background: var(--navy); color: white; font-weight: 600; font-size: 13px;
+        cursor: pointer; font-family: inherit;
+    }
+    .btn-small:hover { background: #123159; }
+    .btn-small:disabled { opacity: 0.6; cursor: not-allowed; }
+    .form-error { color: var(--red); font-size: 12px; }
+    .form-success { color: var(--green); font-size: 12px; }
+    .actions-cell { white-space: nowrap; text-align: right; }
+    .link-btn {
+        background: none; border: none; cursor: pointer; font-family: inherit;
+        font-size: 12px; font-weight: 600; color: var(--blue); padding: 4px 8px;
+    }
+    .link-btn:hover { text-decoration: underline; }
+    .link-btn-danger { color: var(--red); }
+    .link-btn:disabled { opacity: 0.5; cursor: not-allowed; text-decoration: none; }
+    .btn-secondary {
+        background: white; color: var(--navy); border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { background: var(--bg); }
+
+    /* ---- Update Status page ---- */
+    .checkbox-label {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 13px; color: var(--text); cursor: pointer; margin-right: 6px;
+    }
+    .order-card {
+        background: var(--card-bg); border: 1px solid var(--border);
+        border-radius: 10px; padding: 14px 18px; margin-bottom: 10px;
+        display: flex; justify-content: space-between; align-items: center;
+        gap: 16px; flex-wrap: wrap;
+    }
+    .order-card-main { flex: 1; min-width: 220px; }
+    .order-card-title { font-weight: 700; color: var(--navy); font-size: 14px; margin-bottom: 2px; }
+    .order-card-actions { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    .status-badge {
+        display: inline-block; padding: 2px 10px; border-radius: 20px;
+        color: white; font-size: 11px; font-weight: 700; margin-top: 6px;
+    }
+    .status-placed { background: #64748B; }
+    .status-confirmed { background: var(--blue); }
+    .status-in-production { background: var(--orange); }
+    .status-dispatched { background: #0D9488; }
+    .status-delivered { background: var(--green); }
+
+    /* ---- Print order sheet ----
+       .print-sheet stays hidden during normal on-screen use. When
+       printing is triggered, JS adds "printing-mode" to <body>,
+       which flips visibility so only the print sheet shows in the
+       print/PDF output — the rest of the app (sidebar, nav, other
+       page content) is hidden for that output only, never on screen. */
+    .print-sheet { display: none; }
+    @media print {
+        body.printing-mode #root { display: none !important; }
+        body.printing-mode .print-sheet {
+            display: block !important;
+            color: #000; font-family: Arial, sans-serif; padding: 20px;
+        }
+        body.printing-mode .print-sheet h1 { font-size: 20px; margin-bottom: 2px; }
+        body.printing-mode .print-sheet h3 { margin-top: 20px; margin-bottom: 8px; }
+        body.printing-mode .print-info-table,
+        body.printing-mode .print-items-table {
+            width: 100%; border-collapse: collapse; margin-bottom: 12px;
+        }
+        body.printing-mode .print-info-table td {
+            padding: 4px 8px; border-bottom: 1px solid #ddd;
+        }
+        body.printing-mode .print-info-table td:first-child { font-weight: bold; width: 160px; }
+        body.printing-mode .print-items-table th,
+        body.printing-mode .print-items-table td {
+            border: 1px solid #999; padding: 6px 8px; text-align: left;
+        }
+        body.printing-mode .print-signoff { margin-top: 40px; }
+        body.printing-mode .print-signoff p { margin: 16px 0; }
+    }
+
+</style>
+</head>
+<body>
+<div id="root"></div>
+<!-- Print content is rendered here via a React portal, deliberately
+     outside #root's tree — see .print-sheet CSS and the note in
+     app.js. Kept as a sibling so hiding .app-shell during print
+     doesn't also hide this (a hidden ancestor hides all descendants
+     regardless of their own CSS, which was the original bug here). -->
+<div id="print-root"></div>
+
+<!-- ============================================================
+     Configuration — fill these in before deploying.
+     The anon key is designed to be public (unlike a service_role
+     key) — real security comes from the RLS policies in
+     sql/02_auth_and_rls.sql, not from hiding this value.
+     ============================================================ -->
+<script>
+    window.APP_CONFIG = {
+        SUPABASE_URL: "https://iiutxlcayvswjhqgxibd.supabase.co",
+        SUPABASE_ANON_KEY: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImlpdXR4bGNheXZzd2pocWd4aWJkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzYzOTY1NTYsImV4cCI6MjA5MTk3MjU1Nn0.yUAJuLz7NtKQFM9cgZ2jUcLWwyO4oVYKeKwnqtED39U",
+        SCHEMA: "btp"
+    };
+</script>
+
+<!-- App component code — plain JavaScript (React.createElement), no JSX,
+     no Babel, no in-browser translation step. Tested locally with real
+     React rendering before shipping (see test/run_tests.js). -->
+<script src="app.js"></script>
+
+<!-- Bootstrap: create the Supabase client and mount the app. Also
+     plain JavaScript, no JSX. -->
+<script>
+    var supabase = window.supabase.createClient(
+        window.APP_CONFIG.SUPABASE_URL,
+        window.APP_CONFIG.SUPABASE_ANON_KEY,
+        { db: { schema: window.APP_CONFIG.SCHEMA } }
+    );
+
+    var root = ReactDOM.createRoot(document.getElementById("root"));
+    root.render(React.createElement(window.JivanApp.App, { supabase: supabase }));
+</script>
+</body>
+</html>
