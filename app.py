@@ -56,7 +56,7 @@ STATUS_TRANSITIONS = {
     ],
 }
 
-SCHEMA = "btp"
+SCHEMA = "demo"
 IST = ZoneInfo("Asia/Kolkata")
 
 # ---------------------------------------------------------
