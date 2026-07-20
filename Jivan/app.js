@@ -36,6 +36,7 @@
         { key: "order-entry", label: "Order Entry", icon: "\u2795", roles: ["Sales Coordinator", "Admin"] },
         { key: "order-tracker", label: "Order Tracker", icon: "\uD83D\uDCCB", roles: null },
         { key: "update-status", label: "Update Status", icon: "\uD83D\uDD04", roles: null },
+        { key: "production", label: "Production Entry", icon: "\uD83C\uDFED", roles: ["Factory", "Admin"] },
         { key: "dashboard", label: "Dashboard", icon: "\uD83D\uDCCA", roles: null },
         { key: "admin", label: "Admin", icon: "\u2699\uFE0F", roles: ["Admin"] }
     ];
@@ -54,6 +55,41 @@
     // Postgres error codes are consistent and machine-checkable —
     // translate the common ones into plain language instead of
     // showing raw constraint-violation text to end users.
+    // ---- Date/time display formatting: dd-mm-yyyy, IST for timestamps ----
+    // (Plain DATE fields like requested_date have no time-of-day, so no
+    // timezone conversion applies to them — just rearranged to dd-mm-yyyy.
+    // TIMESTAMPTZ fields like placed_at/created_at/updated_at are real
+    // moments in time and do need IST conversion.)
+    function formatDateDMY(dateString) {
+        if (!dateString) return "\u2014";
+        var parts = String(dateString).split("-");
+        if (parts.length !== 3) return String(dateString);
+        return parts[2] + "-" + parts[1] + "-" + parts[0];
+    }
+
+    function formatDateTimeIST(isoString) {
+        if (!isoString) return "\u2014";
+        var d = new Date(isoString);
+        if (isNaN(d.getTime())) return String(isoString);
+        var parts = new Intl.DateTimeFormat("en-GB", {
+            timeZone: "Asia/Kolkata",
+            day: "2-digit", month: "2-digit", year: "numeric",
+            hour: "2-digit", minute: "2-digit", hour12: false
+        }).formatToParts(d);
+        var map = {};
+        parts.forEach(function (p) { map[p.type] = p.value; });
+        return map.day + "-" + map.month + "-" + map.year + " " + map.hour + ":" + map.minute + " IST";
+    }
+
+    function todayDateString() {
+        var d = new Date();
+        var mm = String(d.getMonth() + 1);
+        if (mm.length < 2) mm = "0" + mm;
+        var dd = String(d.getDate());
+        if (dd.length < 2) dd = "0" + dd;
+        return d.getFullYear() + "-" + mm + "-" + dd;
+    }
+
     function friendlyErrorMessage(error, itemLabel) {
         if (!error) return "";
         if (error.code === "23503") {
@@ -84,8 +120,13 @@
         return supabase.from("customers").delete().eq("customer_id", id);
     }
 
+    // Admin's product list reads from the product_stock view so it
+    // shows computed current_stock alongside the raw product row —
+    // current_stock is never stored directly (see 09_inventory.sql
+    // for why: a computed ledger total instead of a mutable counter
+    // that could silently drift out of sync).
     function fetchProducts(supabase) {
-        return supabase.from("products").select("*").order("name")
+        return supabase.from("product_stock").select("*").order("name")
             .then(function (r) { return r.data || []; });
     }
     // Only active products — used by Order Entry so a deactivated
@@ -97,10 +138,18 @@
             .then(function (r) { return r.data || []; });
     }
     function insertProduct(supabase, values) {
-        return supabase.from("products").insert({ name: values.name });
+        return supabase.from("products").insert({
+            name: values.name,
+            opening_balance_qty: values.opening_balance_qty ? Number(values.opening_balance_qty) : 0,
+            uom: values.uom || "pcs"
+        });
     }
     function updateProduct(supabase, id, values) {
-        return supabase.from("products").update({ name: values.name }).eq("product_id", id);
+        return supabase.from("products").update({
+            name: values.name,
+            opening_balance_qty: values.opening_balance_qty ? Number(values.opening_balance_qty) : 0,
+            uom: values.uom || "pcs"
+        }).eq("product_id", id);
     }
     // Deletes the product only if it has never appeared in any
     // order. If it has order history, deactivates it instead (so
@@ -184,36 +233,48 @@
         });
     }
 
-    var ACTIVE_STATUSES = ["Placed", "Confirmed", "In Production", "Dispatched"];
-    var ALL_STATUSES = ACTIVE_STATUSES.concat(["Delivered"]);
+    var ACTIVE_STATUSES = ["Placed", "Confirmed", "In Production", "Partially Dispatched", "Dispatched"];
+    var ALL_STATUSES = ACTIVE_STATUSES.concat(["Delivered", "Short Closed"]);
 
     // Who can move an order out of each status, and to which
     // next status(es). Some statuses have more than one valid next
     // step — e.g. a Confirmed order can go to production, or
     // straight to Dispatched if it's already in stock.
+    //
+    // dispatchAction: true marks a transition that opens the dispatch
+    // form (item quantities, box count, weight, courier/transporter/
+    // vehicle) instead of firing immediately — the form itself decides
+    // the resulting status (Dispatched if everything shipped, Partially
+    // Dispatched if some balance remains), so these have no fixed `next`.
     var STATUS_TRANSITIONS = {
         "Placed": [
             { next: "Confirmed", roles: ["Sales Coordinator", "Management", "Admin"], label: "Confirm Order" }
         ],
         "Confirmed": [
             { next: "In Production", roles: ["Factory", "Admin"], label: "Send to Production" },
-            { next: "Dispatched", roles: ["Factory", "Admin"], label: "Dispatch (already in stock)" }
+            { dispatchAction: true, roles: ["Factory", "Admin"], label: "Dispatch (already in stock)" }
         ],
         "In Production": [
-            { next: "Dispatched", roles: ["Factory", "Admin"], label: "Mark Dispatched" }
+            { dispatchAction: true, roles: ["Factory", "Admin"], label: "Mark Dispatched" }
+        ],
+        "Partially Dispatched": [
+            { dispatchAction: true, roles: ["Factory", "Admin"], label: "Dispatch Remaining" },
+            { next: "Short Closed", roles: ["Sales Coordinator", "Factory", "Admin"], label: "Short Close" }
         ],
         "Dispatched": [
-            { next: "Delivered", roles: ["Factory", "Sales Coordinator", "Admin"], label: "Mark Delivered" }
+            { next: "Delivered", roles: ["Sales Coordinator", "Admin"], label: "Mark Delivered" }
         ]
     };
 
-    // Every active (non-Delivered) order, oldest first, with customer
-    // and item info joined in. Used by Update Status — Order Tracker
-    // (built separately) covers the full history including Delivered.
+    // Every active (non-Delivered, non-Short-Closed) order, oldest
+    // first, with customer and item info joined in. Used by Update
+    // Status — Order Tracker (built separately) covers the full
+    // history including Delivered and Short Closed.
     function fetchActiveOrders(supabase) {
         return supabase.from("orders")
             .select("*, customers(name, region, rsm), order_items(item, qty, unit)")
             .neq("status", "Delivered")
+            .neq("status", "Short Closed")
             .order("placed_at", { ascending: true })
             .then(function (r) {
                 var rows = r.data || [];
@@ -229,6 +290,7 @@
                         region: cust.region,
                         rsm: cust.rsm,
                         items_summary: itemsSummary,
+                        items: items,
                         status: row.status,
                         requested_date: row.requested_date,
                         expected_delivery_date: row.expected_delivery_date,
@@ -256,6 +318,147 @@
                     order_id: orderId, status: newStatus, updated_by: updatedBy, note: note || ""
                 });
             });
+    }
+
+    // ---- Inventory: production entries + dispatch consumption ----
+    // Single company-wide stock pool per product for now (see
+    // 09_inventory.sql for the scope note on why, and what the
+    // natural next step looks like).
+
+    function logProduction(supabase, productId, qty, createdBy, note, productionDate) {
+        return supabase.from("stock_movements").insert({
+            product_id: productId, movement_type: "production", qty: qty,
+            created_by: createdBy, note: note || "", production_date: productionDate || null
+        });
+    }
+
+    function fetchRecentProductionEntries(supabase) {
+        return supabase.from("stock_movements")
+            .select("*, products(name, uom)")
+            .eq("movement_type", "production")
+            .order("created_at", { ascending: false })
+            .limit(50)
+            .then(function (r) {
+                var rows = r.data || [];
+                return rows.map(function (row) {
+                    var prod = row.products || {};
+                    return {
+                        movement_id: row.movement_id,
+                        product_name: prod.name,
+                        uom: prod.uom,
+                        qty: row.qty,
+                        created_by: row.created_by,
+                        created_at: row.created_at,
+                        production_date: row.production_date,
+                        note: row.note
+                    };
+                });
+            });
+    }
+
+    // Called when an order moves to Dispatched. order_items.item is
+    // free text (not a live FK — see the note near deleteOrDeactivateProduct
+    // for why), so this resolves each item's product by name at the
+    // moment of dispatch. An item with no matching product (e.g. the
+    // product was later renamed) is skipped rather than blocking the
+    // dispatch itself — the order status change already succeeded by
+    // the time this runs, so this is best-effort bookkeeping on top
+    // of it, not a gate on the workflow.
+    function logDispatchStockMovements(supabase, items, createdBy, orderId) {
+        return supabase.from("products").select("product_id, name").then(function (prodResult) {
+            if (prodResult.error) return prodResult;
+            var byName = {};
+            (prodResult.data || []).forEach(function (p) { byName[p.name] = p.product_id; });
+            var rows = [];
+            items.forEach(function (it) {
+                var pid = byName[it.item];
+                if (pid) {
+                    rows.push({
+                        product_id: pid, movement_type: "dispatch", qty: it.qty,
+                        order_id: orderId, created_by: createdBy, note: ""
+                    });
+                }
+            });
+            if (rows.length === 0) return { error: null };
+            return supabase.from("stock_movements").insert(rows);
+        });
+    }
+
+    // For each item on an order, how much was originally ordered vs
+    // how much has actually been dispatched so far (across possibly
+    // several partial dispatch events) vs what's left. Computed from
+    // the dispatch_items ledger, not a stored running total — same
+    // principle as product stock.
+    function fetchOrderDispatchStatus(supabase, orderId) {
+        return supabase.from("order_items").select("*").eq("order_id", orderId).then(function (itemsResult) {
+            var orderItems = itemsResult.data || [];
+            return supabase.from("dispatches").select("dispatch_id").eq("order_id", orderId).then(function (dispResult) {
+                var dispatchIds = (dispResult.data || []).map(function (d) { return d.dispatch_id; });
+                if (dispatchIds.length === 0) {
+                    return orderItems.map(function (oi) {
+                        return { item: oi.item, unit: oi.unit, ordered_qty: oi.qty, dispatched_qty: 0, remaining_qty: oi.qty };
+                    });
+                }
+                return supabase.from("dispatch_items").select("*").in("dispatch_id", dispatchIds).then(function (diResult) {
+                    var dispatchedByName = {};
+                    (diResult.data || []).forEach(function (di) {
+                        dispatchedByName[di.item] = (dispatchedByName[di.item] || 0) + Number(di.qty);
+                    });
+                    return orderItems.map(function (oi) {
+                        var dispatchedSoFar = dispatchedByName[oi.item] || 0;
+                        var remaining = oi.qty - dispatchedSoFar;
+                        if (remaining < 0) remaining = 0;
+                        return { item: oi.item, unit: oi.unit, ordered_qty: oi.qty, dispatched_qty: dispatchedSoFar, remaining_qty: remaining };
+                    });
+                });
+            });
+        });
+    }
+
+    // Full dispatch history for an order (every shipment event) —
+    // used by Order Tracker's detail view.
+    function fetchOrderDispatches(supabase, orderId) {
+        return supabase.from("dispatches").select("*, dispatch_items(item, qty, unit)")
+            .eq("order_id", orderId).order("created_at", { ascending: true })
+            .then(function (r) { return r.data || []; });
+    }
+
+    // Records one dispatch event: the shipment header (dispatches),
+    // the items+quantities actually sent this time (dispatch_items),
+    // the corresponding stock reduction, and the resulting order
+    // status (Dispatched if this cleared all remaining balance,
+    // Partially Dispatched if some items still have qty left).
+    function submitDispatch(supabase, orderId, dispatchDetails, itemsToDispatch, resultingStatus, updatedBy) {
+        return supabase.from("dispatches").insert({
+            order_id: orderId,
+            dispatch_date: dispatchDetails.dispatch_date || null,
+            box_count: dispatchDetails.box_count ? Number(dispatchDetails.box_count) : null,
+            weight_kg: dispatchDetails.weight_kg ? Number(dispatchDetails.weight_kg) : null,
+            courier_name: dispatchDetails.courier_name || "",
+            transporter_name: dispatchDetails.transporter_name || "",
+            vehicle_no: dispatchDetails.vehicle_no || "",
+            created_by: updatedBy,
+            note: dispatchDetails.note || ""
+        }).select().single().then(function (dispResult) {
+            if (dispResult.error) return dispResult;
+            var dispatchId = dispResult.data.dispatch_id;
+            var rows = itemsToDispatch.map(function (it) {
+                return { dispatch_id: dispatchId, item: it.item, qty: it.qty, unit: it.unit };
+            });
+            return supabase.from("dispatch_items").insert(rows).then(function (diResult) {
+                if (diResult.error) return diResult;
+                return logDispatchStockMovements(supabase, itemsToDispatch, updatedBy, orderId).then(function (stockResult) {
+                    return updateOrderStatus(supabase, orderId, resultingStatus, updatedBy, dispatchDetails.note || "")
+                        .then(function (statusResult) {
+                            if (statusResult.error) return statusResult;
+                            return {
+                                error: null,
+                                stockWarning: (stockResult && stockResult.error) ? stockResult.error.message : null
+                            };
+                        });
+                });
+            });
+        });
     }
 
     // Every order regardless of status (including Delivered) — the
@@ -591,7 +794,8 @@
                         }));
                     }
                     return h("input", {
-                        key: f.key, className: "field-input-sm", type: "text",
+                        key: f.key, className: "field-input-sm",
+                        type: f.type === "number" ? "number" : "text",
                         placeholder: f.label, value: formValues[f.key],
                         onChange: function (e) { handleFieldChange(f.key, e.target.value); }
                     });
@@ -634,6 +838,9 @@
                 supabase: supabase, title: "Products", rowKey: "product_id",
                 columns: [
                     { key: "name", label: "Name" },
+                    { key: "uom", label: "UOM" },
+                    { key: "opening_balance_qty", label: "Opening Bal" },
+                    { key: "current_stock", label: "Current Stock" },
                     {
                         key: "is_active", label: "Status",
                         render: function (item) {
@@ -643,7 +850,11 @@
                         }
                     }
                 ],
-                fields: [{ key: "name", label: "Product name", type: "text" }],
+                fields: [
+                    { key: "name", label: "Product name", type: "text" },
+                    { key: "uom", label: "UOM", type: "select", options: UNITS },
+                    { key: "opening_balance_qty", label: "Opening balance qty", type: "number" }
+                ],
                 fetchFn: fetchProducts, insertFn: insertProduct,
                 updateFn: updateProduct, deleteFn: deleteOrDeactivateProduct,
                 deleteNeedsFullItem: true, isActiveKey: "is_active", reactivateFn: reactivateProduct
@@ -862,6 +1073,168 @@
         );
     }
 
+    function DispatchForm(props) {
+        var supabase = props.supabase;
+        var order = props.order;
+        var profile = props.profile;
+        var onClose = props.onClose;
+        var onSuccess = props.onSuccess;
+
+        var lineItemsState = useState([]);
+        var lineItems = lineItemsState[0], setLineItems = lineItemsState[1];
+        var qtyDraftsState = useState({}); // item name -> qty to send now
+        var qtyDrafts = qtyDraftsState[0], setQtyDrafts = qtyDraftsState[1];
+        var loadingItemsState = useState(true);
+        var loadingItems = loadingItemsState[0], setLoadingItems = loadingItemsState[1];
+
+        var dispatchDateState = useState(todayDateString());
+        var dispatchDate = dispatchDateState[0], setDispatchDate = dispatchDateState[1];
+        var boxCountState = useState("");
+        var boxCount = boxCountState[0], setBoxCount = boxCountState[1];
+        var weightState = useState("");
+        var weight = weightState[0], setWeight = weightState[1];
+        var courierState = useState("");
+        var courier = courierState[0], setCourier = courierState[1];
+        var transporterState = useState("");
+        var transporter = transporterState[0], setTransporter = transporterState[1];
+        var vehicleState = useState("");
+        var vehicle = vehicleState[0], setVehicle = vehicleState[1];
+        var noteState = useState("");
+        var note = noteState[0], setNote = noteState[1];
+
+        var submittingState = useState(false);
+        var submitting = submittingState[0], setSubmitting = submittingState[1];
+        var errorState = useState("");
+        var error = errorState[0], setError = errorState[1];
+
+        useEffect(function () {
+            setLoadingItems(true);
+            fetchOrderDispatchStatus(supabase, order.order_id).then(function (items) {
+                setLineItems(items);
+                var drafts = {};
+                items.forEach(function (it) { drafts[it.item] = String(it.remaining_qty); });
+                setQtyDrafts(drafts);
+                setLoadingItems(false);
+            });
+        }, [supabase, order.order_id]);
+
+        var handleQtyChange = function (item, value) {
+            setQtyDrafts(function (prev) {
+                var next = {};
+                for (var k in prev) next[k] = prev[k];
+                next[item] = value;
+                return next;
+            });
+        };
+
+        var handleSubmit = function (e) {
+            e.preventDefault();
+            var itemsToDispatch = [];
+            var allFullyCovered = true;
+            lineItems.forEach(function (li) {
+                var qty = Number(qtyDrafts[li.item] || 0);
+                if (qty > 0) itemsToDispatch.push({ item: li.item, qty: qty, unit: li.unit });
+                if (li.dispatched_qty + qty < li.ordered_qty) allFullyCovered = false;
+            });
+            if (itemsToDispatch.length === 0) {
+                setError("Enter a quantity greater than 0 for at least one item.");
+                return;
+            }
+            var anyOvershoot = lineItems.some(function (li) {
+                return Number(qtyDrafts[li.item] || 0) > li.remaining_qty;
+            });
+            if (anyOvershoot) {
+                setError("A quantity entered is more than what's remaining for that item.");
+                return;
+            }
+            setSubmitting(true);
+            setError("");
+            var resultingStatus = allFullyCovered ? "Dispatched" : "Partially Dispatched";
+            submitDispatch(supabase, order.order_id, {
+                dispatch_date: dispatchDate, box_count: boxCount, weight_kg: weight,
+                courier_name: courier, transporter_name: transporter, vehicle_no: vehicle, note: note
+            }, itemsToDispatch, resultingStatus, profile.full_name).then(function (result) {
+                setSubmitting(false);
+                if (result.error) {
+                    setError(friendlyErrorMessage(result.error, "this dispatch"));
+                } else {
+                    onSuccess(result.stockWarning);
+                }
+            });
+        };
+
+        return h("div", { className: "master-section", style: { marginTop: "-6px", marginBottom: "14px" } },
+            h("h2", { className: "section-title" }, "Dispatch \u2014 Order #" + order.order_id),
+            loadingItems
+                ? h("p", { className: "muted-text" }, "Loading\u2026")
+                : h("form", { onSubmit: handleSubmit },
+                    h("table", { className: "data-table" },
+                        h("thead", null, h("tr", null,
+                            h("th", null, "Item"), h("th", null, "Ordered"), h("th", null, "Already Sent"),
+                            h("th", null, "Remaining"), h("th", null, "Send Now")
+                        )),
+                        h("tbody", null, lineItems.map(function (li) {
+                            return h("tr", { key: li.item },
+                                h("td", null, li.item),
+                                h("td", null, li.ordered_qty + " " + li.unit),
+                                h("td", null, li.dispatched_qty + " " + li.unit),
+                                h("td", null, li.remaining_qty + " " + li.unit),
+                                h("td", null, h("input", {
+                                    type: "number", min: "0", max: String(li.remaining_qty),
+                                    className: "field-input-sm", style: { minWidth: "80px" },
+                                    value: qtyDrafts[li.item] || "",
+                                    onChange: function (e) { handleQtyChange(li.item, e.target.value); }
+                                }))
+                            );
+                        }))
+                    ),
+                    h("div", { className: "inline-form", style: { marginTop: "12px" } },
+                        h("label", { className: "field-label", style: { marginBottom: 0, alignSelf: "center" } }, "Dispatch date:"),
+                        h("input", {
+                            type: "date", className: "field-input-sm", value: dispatchDate,
+                            onChange: function (e) { setDispatchDate(e.target.value); }
+                        }),
+                        h("input", {
+                            type: "number", min: "0", className: "field-input-sm", placeholder: "Box count",
+                            value: boxCount, onChange: function (e) { setBoxCount(e.target.value); }
+                        }),
+                        h("input", {
+                            type: "number", min: "0", step: "0.01", className: "field-input-sm", placeholder: "Weight (kg)",
+                            value: weight, onChange: function (e) { setWeight(e.target.value); }
+                        })
+                    ),
+                    h("div", { className: "inline-form", style: { marginTop: "8px" } },
+                        h("input", {
+                            type: "text", className: "field-input-sm", placeholder: "Courier name",
+                            value: courier, onChange: function (e) { setCourier(e.target.value); }
+                        }),
+                        h("input", {
+                            type: "text", className: "field-input-sm", placeholder: "Transporter name",
+                            value: transporter, onChange: function (e) { setTransporter(e.target.value); }
+                        }),
+                        h("input", {
+                            type: "text", className: "field-input-sm", placeholder: "Vehicle no.",
+                            value: vehicle, onChange: function (e) { setVehicle(e.target.value); }
+                        })
+                    ),
+                    h("div", { className: "inline-form", style: { marginTop: "8px" } },
+                        h("input", {
+                            type: "text", className: "field-input-sm", placeholder: "Note (optional)",
+                            value: note, onChange: function (e) { setNote(e.target.value); }
+                        }),
+                        h("button", { className: "btn-small", type: "submit", disabled: submitting },
+                            submitting ? "Submitting\u2026" : "Confirm Dispatch"
+                        ),
+                        h("button", {
+                            type: "button", className: "btn-small btn-secondary",
+                            onClick: onClose
+                        }, "Cancel"),
+                        error ? h("span", { className: "form-error" }, error) : null
+                    )
+                )
+        );
+    }
+
     function UpdateStatusPage(props) {
         var supabase = props.supabase;
         var profile = props.profile;
@@ -880,6 +1253,8 @@
         var dateDrafts = dateDraftsState[0], setDateDrafts = dateDraftsState[1];
         var savingDateIdState = useState(null);
         var savingDateId = savingDateIdState[0], setSavingDateId = savingDateIdState[1];
+        var dispatchingOrderIdState = useState(null); // order_id whose dispatch form is open
+        var dispatchingOrderId = dispatchingOrderIdState[0], setDispatchingOrderId = dispatchingOrderIdState[1];
 
         var loadOrders = useCallback(function () {
             setLoading(true);
@@ -987,51 +1362,212 @@
                                 .filter(function (r, i, arr) { return arr.indexOf(r) === i; })
                             : null;
 
-                        return h("div", { key: order.order_id, className: "order-card" },
-                            h("div", { className: "order-card-main" },
-                                h("div", { className: "order-card-title" },
-                                    "Order #" + order.order_id + " \u2014 " + order.customer_name
-                                ),
-                                h("div", { className: "muted-text" },
-                                    order.items_summary + " \u00b7 Requested " + (order.requested_date || "\u2014") +
-                                    " \u00b7 Expected delivery: " + (order.expected_delivery_date || "not set")
-                                ),
-                                h("span", { className: "status-badge status-" + order.status.replace(/\s+/g, "-").toLowerCase() },
-                                    order.status
-                                ),
-                                (profile.role === "Factory" || profile.role === "Admin")
-                                    ? h("div", { className: "inline-form", style: { marginTop: "8px" } },
-                                        h("input", {
-                                            type: "date", className: "field-input-sm",
-                                            value: dateDrafts.hasOwnProperty(order.order_id)
-                                                ? dateDrafts[order.order_id]
-                                                : (order.expected_delivery_date || ""),
-                                            onChange: function (e) { handleDateChange(order.order_id, e.target.value); }
-                                        }),
-                                        h("button", {
-                                            type: "button", className: "btn-small",
-                                            disabled: savingDateId === order.order_id,
-                                            onClick: function () { handleSaveDate(order); }
-                                        }, savingDateId === order.order_id ? "Saving\u2026" : "Save Date")
-                                    )
-                                    : null
-                            ),
-                            h("div", { className: "order-card-actions" },
-                                actionable.length > 0
-                                    ? actionable.map(function (t) {
-                                        return h("button", {
-                                            key: t.next, type: "button", className: "btn-small",
-                                            disabled: actingId === order.order_id,
-                                            onClick: function () { handleAction(order, t); }
-                                        }, actingId === order.order_id ? "Updating\u2026" : t.label);
-                                    })
-                                    : viewOnlyRoles
-                                        ? h("span", { className: "muted-text" },
-                                            "Done by: " + viewOnlyRoles.join(", "))
+                        return h("div", { key: order.order_id },
+                            h("div", { className: "order-card" },
+                                h("div", { className: "order-card-main" },
+                                    h("div", { className: "order-card-title" },
+                                        "Order #" + order.order_id + " \u2014 " + order.customer_name
+                                    ),
+                                    h("div", { className: "muted-text" },
+                                        order.items_summary + " \u00b7 Requested " + formatDateDMY(order.requested_date) +
+                                        " \u00b7 Expected delivery: " + (order.expected_delivery_date ? formatDateDMY(order.expected_delivery_date) : "not set")
+                                    ),
+                                    h("span", { className: "status-badge status-" + order.status.replace(/\s+/g, "-").toLowerCase() },
+                                        order.status
+                                    ),
+                                    (profile.role === "Factory" || profile.role === "Admin")
+                                        ? h("div", { className: "inline-form", style: { marginTop: "8px" } },
+                                            h("input", {
+                                                type: "date", className: "field-input-sm",
+                                                value: dateDrafts.hasOwnProperty(order.order_id)
+                                                    ? dateDrafts[order.order_id]
+                                                    : (order.expected_delivery_date || ""),
+                                                onChange: function (e) { handleDateChange(order.order_id, e.target.value); }
+                                            }),
+                                            h("button", {
+                                                type: "button", className: "btn-small",
+                                                disabled: savingDateId === order.order_id,
+                                                onClick: function () { handleSaveDate(order); }
+                                            }, savingDateId === order.order_id ? "Saving\u2026" : "Save Date")
+                                        )
                                         : null
-                            )
+                                ),
+                                h("div", { className: "order-card-actions" },
+                                    actionable.length > 0
+                                        ? actionable.map(function (t) {
+                                            return h("button", {
+                                                key: t.label, type: "button", className: "btn-small",
+                                                disabled: actingId === order.order_id,
+                                                onClick: function () {
+                                                    if (t.dispatchAction) {
+                                                        setDispatchingOrderId(order.order_id);
+                                                    } else {
+                                                        handleAction(order, t);
+                                                    }
+                                                }
+                                            }, actingId === order.order_id ? "Updating\u2026" : t.label);
+                                        })
+                                        : viewOnlyRoles
+                                            ? h("span", { className: "muted-text" },
+                                                "Done by: " + viewOnlyRoles.join(", "))
+                                            : null
+                                )
+                            ),
+                            dispatchingOrderId === order.order_id
+                                ? h(DispatchForm, {
+                                    supabase: supabase, order: order, profile: profile,
+                                    onClose: function () { setDispatchingOrderId(null); },
+                                    onSuccess: function (stockWarning) {
+                                        setDispatchingOrderId(null);
+                                        if (stockWarning) {
+                                            setError("Dispatched, but stock wasn't fully updated: " + stockWarning);
+                                        }
+                                        loadOrders();
+                                    }
+                                })
+                                : null
                         );
                     })
+        );
+    }
+
+    function ProductionEntryPage(props) {
+        var supabase = props.supabase;
+        var profile = props.profile;
+
+        var productsState = useState([]);
+        var products = productsState[0], setProducts = productsState[1];
+        var entriesState = useState([]);
+        var entries = entriesState[0], setEntries = entriesState[1];
+        var loadingState = useState(true);
+        var loading = loadingState[0], setLoading = loadingState[1];
+
+        var productIdState = useState("");
+        var productId = productIdState[0], setProductId = productIdState[1];
+        var qtyState = useState("");
+        var qty = qtyState[0], setQty = qtyState[1];
+        var productionDateState = useState(todayDateString());
+        var productionDate = productionDateState[0], setProductionDate = productionDateState[1];
+        var noteState = useState("");
+        var note = noteState[0], setNote = noteState[1];
+        var submittingState = useState(false);
+        var submitting = submittingState[0], setSubmitting = submittingState[1];
+        var errorState = useState("");
+        var error = errorState[0], setError = errorState[1];
+        var successState = useState("");
+        var success = successState[0], setSuccess = successState[1];
+
+        var loadAll = useCallback(function () {
+            setLoading(true);
+            Promise.all([fetchProducts(supabase), fetchRecentProductionEntries(supabase)]).then(function (results) {
+                var prods = results[0];
+                setProducts(prods);
+                setEntries(results[1]);
+                if (prods.length > 0 && !productId) setProductId(String(prods[0].product_id));
+                setLoading(false);
+            });
+        }, [supabase]);
+
+        useEffect(function () { loadAll(); }, [loadAll]);
+
+        var selectedProduct = products.filter(function (p) {
+            return String(p.product_id) === String(productId);
+        })[0];
+
+        var handleSubmit = function (e) {
+            e.preventDefault();
+            if (!productId) { setError("Select a product."); return; }
+            if (!qty || Number(qty) <= 0) { setError("Enter a quantity greater than 0."); return; }
+            setSubmitting(true);
+            setError("");
+            setSuccess("");
+            logProduction(supabase, Number(productId), Number(qty), profile.full_name, note, productionDate)
+                .then(function (result) {
+                    setSubmitting(false);
+                    if (result.error) {
+                        setError(friendlyErrorMessage(result.error, selectedProduct ? selectedProduct.name : "this product"));
+                    } else {
+                        setSuccess("Logged " + qty + " " + (selectedProduct ? selectedProduct.uom : "") + " of production.");
+                        setQty("");
+                        setNote("");
+                        setProductionDate(todayDateString());
+                        loadAll();
+                    }
+                });
+        };
+
+        if (loading) {
+            return h("div", null,
+                h("h1", { className: "page-title" }, "Production Entry"),
+                h("p", { className: "muted-text" }, "Loading\u2026")
+            );
+        }
+
+        if (products.length === 0) {
+            return h("div", null,
+                h("h1", { className: "page-title" }, "Production Entry"),
+                h("div", { className: "placeholder-card" },
+                    h("strong", null, "Add products first"),
+                    "There's nothing to log production against yet \u2014 add a product in Admin first."
+                )
+            );
+        }
+
+        return h("div", null,
+            h("h1", { className: "page-title" }, "Production Entry"),
+            h("p", { className: "page-sub" }, "Log production as it happens \u2014 adds to that product's stock."),
+
+            h("div", { className: "master-section" },
+                h("form", { className: "inline-form", onSubmit: handleSubmit },
+                    h("select", {
+                        className: "field-input-sm", value: productId,
+                        onChange: function (e) { setProductId(e.target.value); }
+                    }, products.map(function (p) {
+                        return h("option", { key: p.product_id, value: String(p.product_id) },
+                            p.name + " (current: " + p.current_stock + " " + p.uom + ")");
+                    })),
+                    h("input", {
+                        className: "field-input-sm", type: "number", min: "1", placeholder: "Quantity",
+                        value: qty, onChange: function (e) { setQty(e.target.value); }
+                    }),
+                    h("label", { className: "field-label", style: { marginBottom: 0, alignSelf: "center" } }, "Production date:"),
+                    h("input", {
+                        className: "field-input-sm", type: "date",
+                        value: productionDate, onChange: function (e) { setProductionDate(e.target.value); }
+                    }),
+                    h("input", {
+                        className: "field-input-sm", type: "text", placeholder: "Note (optional)",
+                        value: note, onChange: function (e) { setNote(e.target.value); }
+                    }),
+                    h("button", { className: "btn-small", type: "submit", disabled: submitting },
+                        submitting ? "Logging\u2026" : "Log Production"
+                    ),
+                    error ? h("span", { className: "form-error" }, error) : null,
+                    success ? h("span", { className: "form-success" }, success) : null
+                )
+            ),
+
+            h("div", { className: "master-section" },
+                h("h2", { className: "section-title" }, "Recent production entries"),
+                entries.length === 0
+                    ? h("p", { className: "muted-text" }, "No production logged yet.")
+                    : h("table", { className: "data-table" },
+                        h("thead", null, h("tr", null,
+                            h("th", null, "Product"), h("th", null, "Qty"), h("th", null, "By"),
+                            h("th", null, "Production Date"), h("th", null, "Logged At"), h("th", null, "Note")
+                        )),
+                        h("tbody", null, entries.map(function (entry) {
+                            return h("tr", { key: entry.movement_id },
+                                h("td", null, entry.product_name),
+                                h("td", null, entry.qty + " " + entry.uom),
+                                h("td", null, entry.created_by),
+                                h("td", null, formatDateDMY(entry.production_date)),
+                                h("td", null, formatDateTimeIST(entry.created_at)),
+                                h("td", null, entry.note || "")
+                            );
+                        }))
+                    )
+            )
         );
     }
 
@@ -1107,12 +1643,13 @@
                 });
                 Promise.all([
                     fetchOrderItemsForDetail(supabase, order.order_id),
-                    fetchOrderStatusLog(supabase, order.order_id)
+                    fetchOrderStatusLog(supabase, order.order_id),
+                    fetchOrderDispatches(supabase, order.order_id)
                 ]).then(function (results) {
                     setDetailCache(function (prev) {
                         var next = {};
                         for (var k in prev) next[k] = prev[k];
-                        next[order.order_id] = { loading: false, items: results[0], history: results[1] };
+                        next[order.order_id] = { loading: false, items: results[0], history: results[1], dispatches: results[2] };
                         return next;
                     });
                 });
@@ -1185,8 +1722,8 @@
                                         ),
                                         h("div", { className: "muted-text" }, order.items_summary),
                                         h("div", { className: "muted-text" },
-                                            "Requested: " + (order.requested_date || "\u2014") +
-                                            " \u00b7 Expected delivery: " + (order.expected_delivery_date || "\u2014")
+                                            "Requested: " + formatDateDMY(order.requested_date) +
+                                            " \u00b7 Expected delivery: " + formatDateDMY(order.expected_delivery_date)
                                         ),
                                         h("span", {
                                             className: "status-badge status-" +
@@ -1215,6 +1752,29 @@
                                                             );
                                                         }))
                                                     ),
+                                                h("h2", { className: "section-title", style: { marginTop: "16px" } }, "Dispatch history"),
+                                                (!detail.dispatches || detail.dispatches.length === 0)
+                                                    ? h("p", { className: "muted-text" }, "No dispatches yet.")
+                                                    : detail.dispatches.map(function (d) {
+                                                        var itemsList = (d.dispatch_items || []).map(function (di) {
+                                                            return di.item + " (" + di.qty + " " + di.unit + ")";
+                                                        }).join(", ");
+                                                        return h("div", { key: d.dispatch_id, className: "order-card", style: { marginBottom: "8px" } },
+                                                            h("div", { className: "order-card-main" },
+                                                                h("div", { className: "muted-text" },
+                                                                    formatDateDMY(d.dispatch_date) + " \u00b7 " + itemsList
+                                                                ),
+                                                                h("div", { className: "muted-text" },
+                                                                    (d.box_count ? d.box_count + " boxes" : "") +
+                                                                    (d.weight_kg ? (d.box_count ? ", " : "") + d.weight_kg + " kg" : "") +
+                                                                    (d.courier_name ? " \u00b7 " + d.courier_name : "") +
+                                                                    (d.transporter_name ? " \u00b7 " + d.transporter_name : "") +
+                                                                    (d.vehicle_no ? " \u00b7 " + d.vehicle_no : "")
+                                                                ),
+                                                                h("div", { className: "muted-text" }, "By " + d.created_by + ", logged " + formatDateTimeIST(d.created_at))
+                                                            )
+                                                        );
+                                                    }),
                                                 h("h2", { className: "section-title", style: { marginTop: "16px" } }, "Status history"),
                                                 detail.history.length === 0
                                                     ? h("p", { className: "muted-text" }, "No history.")
@@ -1227,7 +1787,7 @@
                                                             return h("tr", { key: entry.log_id },
                                                                 h("td", null, entry.status),
                                                                 h("td", null, entry.updated_by),
-                                                                h("td", null, entry.updated_at),
+                                                                h("td", null, formatDateTimeIST(entry.updated_at)),
                                                                 h("td", null, entry.note || "")
                                                             );
                                                         }))
@@ -1254,8 +1814,8 @@
                                                                         h("tr", null, h("td", null, "Region"), h("td", null, order.region)),
                                                                         h("tr", null, h("td", null, "RSM"), h("td", null, order.rsm || "\u2014")),
                                                                         h("tr", null, h("td", null, "Status"), h("td", null, order.status)),
-                                                                        h("tr", null, h("td", null, "Requested date"), h("td", null, order.requested_date || "\u2014")),
-                                                                        h("tr", null, h("td", null, "Expected delivery"), h("td", null, order.expected_delivery_date || "\u2014")),
+                                                                        h("tr", null, h("td", null, "Requested date"), h("td", null, formatDateDMY(order.requested_date))),
+                                                                        h("tr", null, h("td", null, "Expected delivery"), h("td", null, formatDateDMY(order.expected_delivery_date))),
                                                                         order.box_count
                                                                             ? h("tr", null, h("td", null, "Box count"), h("td", null, String(order.box_count)))
                                                                             : null,
@@ -1363,6 +1923,8 @@
             pageContent = h(UpdateStatusPage, { supabase: supabase, profile: profile });
         } else if (activePage === "order-tracker") {
             pageContent = h(OrderTrackerPage, { supabase: supabase, profile: profile });
+        } else if (activePage === "production") {
+            pageContent = h(ProductionEntryPage, { supabase: supabase, profile: profile });
         } else {
             pageContent = h(PlaceholderPage, { title: meta.title, note: meta.note });
         }
@@ -1390,6 +1952,14 @@
         fetchActiveOrders: fetchActiveOrders,
         updateExpectedDeliveryDate: updateExpectedDeliveryDate,
         updateOrderStatus: updateOrderStatus,
+        logProduction: logProduction,
+        fetchRecentProductionEntries: fetchRecentProductionEntries,
+        logDispatchStockMovements: logDispatchStockMovements,
+        fetchOrderDispatchStatus: fetchOrderDispatchStatus,
+        fetchOrderDispatches: fetchOrderDispatches,
+        submitDispatch: submitDispatch,
+        DispatchForm: DispatchForm,
+        ProductionEntryPage: ProductionEntryPage,
         STATUS_TRANSITIONS: STATUS_TRANSITIONS,
         ACTIVE_STATUSES: ACTIVE_STATUSES,
         ALL_STATUSES: ALL_STATUSES,
@@ -1403,6 +1973,9 @@
         REGIONS: REGIONS,
         fetchCustomers: fetchCustomers,
         friendlyErrorMessage: friendlyErrorMessage,
+        formatDateDMY: formatDateDMY,
+        formatDateTimeIST: formatDateTimeIST,
+        todayDateString: todayDateString,
         insertCustomer: insertCustomer,
         updateCustomer: updateCustomer,
         deleteCustomer: deleteCustomer,
